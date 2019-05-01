@@ -1,0 +1,11 @@
+src
+pkg
+.SRCINFO
+bl.txt
+*.tar.gz
+*.pkg.tar*
+*no_pool.patch
+ngx_debug_pool/
+lua-nginx-module/
+nginx/
+*.patch

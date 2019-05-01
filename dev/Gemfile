@@ -1,0 +1,31 @@
+#!/usr/bin/ruby
+source 'https://rubygems.org'
+gem 'typhoeus'
+gem 'json'
+
+gem 'irb'
+gem 'pry'
+gem 'pry-byebug' if Gem::Version.new(RUBY_VERSION) >= Gem::Version.new('2.2.0')
+gem 'pry-coolline'
+gem 'pry-doc'
+gem 'pry-git'
+gem 'pry-inline'
+gem 'pry-rescue'
+gem 'pry-stack_explorer'
+gem 'pry-state'
+gem 'pry-syntax-hacks'
+gem 'pry-theme'
+
+gem 'celluloid'
+if Gem::Version.new(RUBY_VERSION) < Gem::Version.new('2.2.2')
+  gem 'nio4r', '~>1.2.1'
+end
+gem 'celluloid-io'
+
+
+gem 'reel', :git => "https://github.com/celluloid/reel.git"
+gem 'reel-rack', :git => "https://github.com/slact/reel-rack.git"
+  
+gem 'minitest'
+gem 'minitest-reporters'
+
