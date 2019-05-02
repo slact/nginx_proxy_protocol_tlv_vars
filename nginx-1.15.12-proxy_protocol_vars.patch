@@ -389,7 +389,7 @@ diff -ur -x '*~' -x '*.swp' nginx-1.15.12/src/http/ngx_http_variables.c nginx-1.
  ngx_http_variable_server_addr(ngx_http_request_t *r,
 diff -ur -x '*~' -x '*.swp' nginx-1.15.12/src/stream/ngx_stream_variables.c nginx-1.15.12-proxy_protocol_vars/src/stream/ngx_stream_variables.c
 --- nginx-1.15.12/src/stream/ngx_stream_variables.c	2019-04-16 10:54:59.000000000 -0400
-+++ nginx-1.15.12-proxy_protocol_vars/src/stream/ngx_stream_variables.c	2019-05-02 16:59:39.542364628 -0400
++++ nginx-1.15.12-proxy_protocol_vars/src/stream/ngx_stream_variables.c	2019-05-02 17:38:15.774388217 -0400
 @@ -23,6 +23,8 @@
      ngx_stream_session_t *s, ngx_stream_variable_value_t *v, uintptr_t data);
  static ngx_int_t ngx_stream_variable_proxy_protocol_port(
@@ -403,7 +403,7 @@ diff -ur -x '*~' -x '*.swp' nginx-1.15.12/src/stream/ngx_stream_variables.c ngin
      { ngx_string("proxy_protocol_port"), NULL,
        ngx_stream_variable_proxy_protocol_port, 0, 0, 0 },
  
-+    { ngx_string("proxy_protocol_port"), NULL,
++    { ngx_string("proxy_protocol_tlv_"), NULL,
 +      ngx_stream_variable_proxy_protocol_tlv, 0, NGX_STREAM_VAR_PREFIX, 0 },
 +
      { ngx_string("server_addr"), NULL,
