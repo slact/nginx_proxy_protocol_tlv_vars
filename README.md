@@ -25,10 +25,17 @@ make install
 This patch adds the following variables when using `listen proxy_protocol`:
 
 ### `$proxy_protocol_tlv_0xXX`
-  the TLV value with type code `0xXX`, where `XX` is a 2-digit hex value
+  the TLV value with type code `0xXX`, where `XX` is a 2-digit hex value.
+  ```nginx
+  add_header X-pp-tlv-0xEC $proxy_protocol_tlv_0xEC;
+  ```
+  
 
 ### `$proxy_protocol_tlv_AWS_VPCE_ID`
   Amazon's AWS [VPC Endpoint ID](https://docs.aws.amazon.com/elasticloadbalancing/latest/network/load-balancer-target-groups.html#custom-tlv). This is the equivalent of [Nginx Plus](https://www.nginx.com/blog/nginx-plus-r16-released/#r16-ppv2-privatelink)' `$proxy_protocol_tlv_0xEA`.
+  ```nginx
+  add_header X-pp-tlv-0xEC $proxy_protocol_tlv_AWS_VPCE_ID; #vpce-08d2bf15fac5001c9
+  ```
   
 # Caveats
 
