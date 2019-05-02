@@ -39,7 +39,15 @@ fi
 tar xzf $base.tar.gz
 cp $base $patched -Rf
 
-cp ../../src $patched/ -Rfv
+pushd ../../src
+changed=( `find -type f` )
+popd
+
+for f in $changed; do
+  echo  $f
+  ln -sf `realpath "../../src/$f"` `realpath "$patched/src/$f"`
+done
+
 rm $patched/src/nginx-source
 rm $patched/src/nginx
 if [[ $2 == "meld" ]]; then
