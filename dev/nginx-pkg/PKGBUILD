@@ -33,7 +33,7 @@ fi
 _include_http2=0
 
 _semver_gteq() {
-  ruby -rrubygems -e "exit Gem::Version.new(('$1').match(/\/?([.\d]+)/)[1]) < Gem::Version.new(('$2').match(/^[^\s+]/)) ? 0 : 1"
+  ruby -rrubygems -e "exit Gem::Version.new('$1') > Gem::Version.new('$2') ? 0 : 1"
   return $?
 }
 
