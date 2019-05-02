@@ -494,6 +494,7 @@ ngx_proxy_protocol_v2_read(ngx_connection_t *c, u_char *buf, u_char *last)
 #if (NGX_HAVE_INET6)
     ngx_proxy_protocol_inet6_addrs_t   *in6;
 #endif
+
     header = (ngx_proxy_protocol_header_t *) buf;
 
     buf += sizeof(ngx_proxy_protocol_header_t);
