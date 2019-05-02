@@ -71,7 +71,7 @@ static ngx_stream_variable_t  ngx_stream_core_variables[] = {
     { ngx_string("proxy_protocol_port"), NULL,
       ngx_stream_variable_proxy_protocol_port, 0, 0, 0 },
 
-    { ngx_string("proxy_protocol_port"), NULL,
+    { ngx_string("proxy_protocol_tlv_"), NULL,
       ngx_stream_variable_proxy_protocol_tlv, 0, NGX_STREAM_VAR_PREFIX, 0 },
 
     { ngx_string("server_addr"), NULL,
