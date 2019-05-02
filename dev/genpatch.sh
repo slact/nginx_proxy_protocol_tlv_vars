@@ -35,7 +35,8 @@ cp $base $patched -Rf
 cp ../../src $patched/ -Rfv
 rm $patched/src/nginx-source
 rm $patched/src/nginx
-meld $base $patched
+#meld $base $patched
+diff -ur -x '*~' -x '*.swp' $base/src $patched/src |colordiff
 if confirm "Patch for $base looks ok?"; then
   diff -ur -x '*~' -x '*.swp' $base/src $patched/src > ../../$patched.patch
   cat ../../$patched.patch
