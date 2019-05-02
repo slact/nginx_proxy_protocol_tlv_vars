@@ -10,8 +10,11 @@ Nginx released PPv2 support in version 1.15.2, however, they kept TLV parsing li
 VERSION=1.16.0 #nginx version to patch
 #grab nginx
 wget http://nginx.org/download/nginx-$VERSION.tar.gz
+tar -xzf nginx-$VERSION.tar.gz
 cd nginx-$VERSION/
+#grab patch
 wget https://github.com/slact/nginx_proxy_protocol_tlv_vars/raw/master/nginx-$VERSION-proxy_protocol_vars.patch
+#apply patch
 patch -p1 < nginx-$VERSION-proxy_protocol_vars.patch
 
 #now build nginx as you normally would
