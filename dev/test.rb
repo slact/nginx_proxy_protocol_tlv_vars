@@ -127,11 +127,17 @@ RAW_PRIVATELINK_PP2_HEADER = [
 ].pack("C*")
 
 class PPv2Test <  Minitest::Test
-  def new_pph(min_size=0)
+  def new_pph(tlvs={})
     pph = ProxyProtocol.new(version: 2, protocol: :TCP4, source_addr: "127.0.0.1", dest_addr: "127.0.0.2", source_port: 5451, dest_port: 80)
-    pph.add_tlv(0x80, "hey i'm a TLV!")
-    pph.add_tlv(0x90, "is it me or are you just a TLV?")
-    pph.add_tlv(0x91, "foo foo foo foo foo !!!")
+    if tlvs.length == 0
+      tlvs = {0x80 => "hey i'm a TLV!",
+              0x90 => "is it me or are you just a TLV?",
+              0x91 => "foo foo foo foo foo !!!"
+             }
+    end
+    tlvs.each do |k, v|
+      pph.add_tlv k, v
+    end
     pph
   end
   
@@ -143,9 +149,11 @@ class PPv2Test <  Minitest::Test
     end
     resp = HTTP.get("#{opt[:ssl] ? "https://127.0.0.1:8092" : "http://127.0.0.1:8082"}#{url}", proxy_protocol_header: pph, ssl_context: ssl_ctx)
     type = opt[:type] || url.match("^/(.*)")[1].to_i(16) || url.match("^/(.*)")[1]
+    assert_equal 200, resp.code
     if block_given?
       block.call(resp.body.to_s, type, pph)
     else
+      assert !pph.tlv[type].nil?
       assert_equal pph.tlv[type], resp.body.to_s
     end
   end
@@ -159,9 +167,12 @@ class PPv2Test <  Minitest::Test
       throw "url must start with /" unless u.match("^/")
       resp=client.call(:get, u)
       type = opt[:type] || u.match("^/(.*)")[1].to_i(16) || u.match("^/(.*)")[1]
+      assert resp.ok?
+      assert_equal 200, resp.status.to_i
       if block_given? then
         block.call(resp.body, type, pph)
       else
+        assert !pph.tlv[type].nil?
         assert_equal pph.tlv[type], resp.body
       end
     end
@@ -192,6 +203,23 @@ class PPv2Test <  Minitest::Test
   def test_AWS_VPCE_ID
     assert_http "/AWS_VPCE_ID", RAW_PRIVATELINK_PP2_HEADER do |body, type, pph|
       assert_equal "vpce-08d2bf15fac5001c9", body
+    end
+  end
+  
+  def test_named_tlvs
+    pph = new_pph({
+      0x30 => "NETNS-value",
+      0x02 => "AUTHORITY-value",
+      0x01 => "ALPN-value"
+    })
+    assert_http "/ALPN", pph, type: 0x01
+    assert_http "/AUTHORITY", pph, type: 0x02
+    assert_http "/NETNS", pph, type: 0x30
+  end
+  
+  def test_unknown_tlv_name
+    assert_http "/NO_SUCH_TLV", new_pph do |body, type, pph|
+      assert_equal "", body
     end
   end
   

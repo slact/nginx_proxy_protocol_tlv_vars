@@ -7,16 +7,12 @@
 
 #include <ngx_config.h>
 #include <ngx_core.h>
-#include <assert.h>
-#include <signal.h>
-static u_char *ngx_proxy_protocol_tlv_value_sentinel = (u_char *)"END";
 
 #define NGX_PROXY_PROTOCOL_AF_INET          1
 #define NGX_PROXY_PROTOCOL_AF_INET6         2
 
 
 #define ngx_proxy_protocol_parse_uint16(p)  ((p)[0] << 8 | (p)[1])
-
 
 typedef struct {
     u_char                                  signature[12];
@@ -40,6 +36,26 @@ typedef struct {
     u_char                                  src_port[2];
     u_char                                  dst_port[2];
 } ngx_proxy_protocol_inet6_addrs_t;
+
+static ngx_int_t ngx_ppv2_tlv_parse_aws_vpce_id(ngx_connection_t *c, ngx_str_t *in, ngx_str_t *out);
+static ngx_int_t ngx_ppv2_tlv_passthrough(ngx_connection_t *c, ngx_str_t *in, ngx_str_t *out);
+
+typedef struct {
+    ngx_str_t                               name;
+    u_char                                  type;
+    ngx_int_t (*handler)(ngx_connection_t *c, ngx_str_t *value_in, ngx_str_t *value_out);
+} ngx_proxy_protocol_tlv_named_handler_t;
+
+static ngx_proxy_protocol_tlv_named_handler_t ngx_proxy_protocol_tlv_named_handler[] = {
+    { ngx_string("aws_vpce_id"), 0xEA, ngx_ppv2_tlv_parse_aws_vpce_id},
+    { ngx_string("alpn"),        0x01, ngx_ppv2_tlv_passthrough},
+    { ngx_string("authority"),   0x02, ngx_ppv2_tlv_passthrough},
+    { ngx_string("crc32c"),      0x03, ngx_ppv2_tlv_passthrough},
+    { ngx_string("netns"),       0x30, ngx_ppv2_tlv_passthrough},
+    { ngx_null_string,           0x00, NULL}
+};
+
+static u_char *ngx_proxy_protocol_tlv_value_sentinel = (u_char *)"END";
 
 
 static u_char *ngx_proxy_protocol_v2_read(ngx_connection_t *c, u_char *buf,
@@ -245,10 +261,6 @@ static ngx_int_t ngx_proxy_protocol_v2_checksum(u_char *first, u_char *last, ngx
     return NGX_OK;
 }
 
-#ifndef ngx_str_match_str
-#define ngx_str_match_str(ngx_str, str) \
-    ((ngx_str)->len == sizeof(str)-1 && ngx_memcmp((ngx_str)->data, str, sizeof(str)-1) == 0)
-#endif
 static ngx_int_t
 ngx_proxy_protocol_v2_read_tlv(ngx_connection_t *c, u_char *buf, u_char *first, u_char *last)
 {
@@ -283,7 +295,6 @@ ngx_proxy_protocol_v2_read_tlv(ngx_connection_t *c, u_char *buf, u_char *first, 
     }
     if(tlv_count == 0) {
         //no TLVs
-        assert(c->proxy_protocol_tlv == NULL);
         return NGX_OK;
     }
     ngx_proxy_protocol_tlv_t  *tlvs;
@@ -326,6 +337,24 @@ ngx_proxy_protocol_find_tlv_type(ngx_connection_t *c, u_char type) {
     return NULL;
 }
 
+static ngx_int_t ngx_proxy_protocol_tlv_match_named_variable(ngx_connection_t *c, ngx_str_t *var, ngx_str_t *varval) {
+    ngx_proxy_protocol_tlv_named_handler_t *cur;
+    ngx_proxy_protocol_tlv_t *tlv;
+    for(cur = ngx_proxy_protocol_tlv_named_handler; cur->name.data != NULL; cur++) {
+        if (var->len == cur->name.len
+            && ngx_memcmp(var->data, cur->name.data, var->len) == 0)
+        {
+            if((tlv = ngx_proxy_protocol_find_tlv_type(c, cur->type)) == NULL) {
+                //we didn't see this TLV type in the PPv2 header
+                return NGX_DECLINED;
+            }
+            return cur->handler(c, &tlv->val, varval);
+        }
+    }
+    //no such variable
+    return NGX_DECLINED;
+}
+
 ngx_int_t
 ngx_proxy_protocol_variable_tlv(ngx_connection_t *c, ngx_str_t *varname,
     ngx_str_t *varval)
@@ -352,23 +381,27 @@ ngx_proxy_protocol_variable_tlv(ngx_connection_t *c, ngx_str_t *varname,
             *varval = tlv->val;
             return NGX_OK;
         }
+        //not found
+        return NGX_DECLINED;
     }
-    else if (ngx_str_match_str(&var, "aws_vpce_id")) { //nginx auto-downcases all variables
-        //https://docs.aws.amazon.com/elasticloadbalancing/latest/network/load-balancer-target-groups.html#proxy-protocol
-        if ((tlv = ngx_proxy_protocol_find_tlv_type(c, 0xEA)) != NULL
-            && tlv->val.len > 0
-            && tlv->val.data[0] == 0x01)
-        {
-            *varval = tlv->val;
-            //strip off the PP2_SUBTYPE_AWS_VPCE_ID byte
-            varval->len--;
-            varval->data++;
-            return NGX_OK;
-        }
+    return ngx_proxy_protocol_tlv_match_named_variable(c, &var, varval);
+}
+
+static ngx_int_t ngx_ppv2_tlv_parse_aws_vpce_id(ngx_connection_t *c, ngx_str_t *in, ngx_str_t *out) {
+    //https://docs.aws.amazon.com/elasticloadbalancing/latest/network/load-balancer-target-groups.html#proxy-protocol
+    if(in->len == 0 || in->data[0] != 0x01) {
+        //an unecpected first byte to be sure, and an unwelcome one
+        return NGX_DECLINED;
     }
-    
-    //not found
-    return NGX_DECLINED;
+    //strip off the PP2_SUBTYPE_AWS_VPCE_ID byte
+    out->len = in->len-1;
+    out->data = in->data+1;
+    return NGX_OK;
+}
+
+static ngx_int_t ngx_ppv2_tlv_passthrough(ngx_connection_t *c, ngx_str_t *in, ngx_str_t *out) {
+    *out = *in;
+    return NGX_OK;
 }
 
 static u_char *
