@@ -5,6 +5,12 @@ require 'bundler/setup'
 require 'minitest'
 require 'minitest/reporters'
 require "minitest/autorun"
+
+require "http"
+require "net-http2"
+require "pry"
+require_relative "proxyprotocol.rb"
+
 class BetterSpecReporter < Minitest::Reporters::SpecReporter
   def before_test(test)
     test_name = test.name.gsub(/^test_: /, 'test:')
@@ -56,6 +62,33 @@ def url(part="")
   "#{$server_url}/#{part}"
 end
 
+module HTTP
+  class Options
+    attr_accessor :proxy_protocol_header
+  end
+  class Connection
+    alias :__initialize :initialize
+    def initialize(req, options)
+      @proxy_protocol_header=options.proxy_protocol_header
+      __initialize req, options
+    end
+    alias :__send_proxy_connect_request :send_proxy_connect_request
+    def send_proxy_connect_request(req)
+      ret = __send_proxy_connect_request(req)
+      @socket << @proxy_protocol_header.to_s if @proxy_protocol_header
+      ret
+    end
+  end
+end
+
+
 class PubSubTest <  Minitest::Test
-  
+  def test_foo
+    pph = ProxyProtocol.new(version: 2, protocol: :TCP4, source_addr: "127.0.0.1", dest_addr: "127.0.0.2", source_port: 5451, dest_port: 80)
+    pph.add_tlv(0x80, "hey i'm a TLV!")
+    pph.add_tlv(0x90, "is it me or are you just a TLV?")
+    pph.add_tlv(0x91, "foo foo foo foo foo foo foo foo foo foo foo foo foo foo foo foo foo foo foo foo !!!")
+    resp = HTTP.get("http://127.0.0.1:8082/", proxy_protocol_header: pph)
+    puts resp
+  end
 end

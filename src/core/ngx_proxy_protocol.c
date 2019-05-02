@@ -8,7 +8,8 @@
 #include <ngx_config.h>
 #include <ngx_core.h>
 #include <assert.h>
-
+#include <signal.h>
+static u_char *ngx_proxy_protocol_tlv_value_sentinel = (u_char *)"END";
 
 #define NGX_PROXY_PROTOCOL_AF_INET          1
 #define NGX_PROXY_PROTOCOL_AF_INET6         2
@@ -273,14 +274,15 @@ ngx_proxy_protocol_v2_read_tlv(ngx_connection_t *c, u_char *buf, u_char *last)
     
     //set the TLVs
     int i=0;
+    cur = buf;
     while((rc = ngx_proxy_protocol_v2_next_tlv(&cur, last, &tlvs[i])) == NGX_OK) {
         ngx_memcpy(valbuf, tlvs[i].val.data, tlvs[i].val.len);
         tlvs[i].val.data = valbuf;
         valbuf += tlvs[i].val.len;
         i++;
     }
-    //last TLV is all-zeroes to mark the end of the array
-    tlvs[i].val.data = NULL;
+    //last TLV is a sentinel to mark the end of the array
+    tlvs[i].val.data = ngx_proxy_protocol_tlv_value_sentinel;
     tlvs[i].val.len = 0;
     tlvs[i].type = 0;
     c->proxy_protocol_tlv = tlvs;
@@ -318,7 +320,7 @@ ngx_proxy_protocol_variable_tlv(ngx_connection_t *c, ngx_str_t *varname,
         return NGX_ERROR;
     }
 
-    for(cur = c->proxy_protocol_tlv; !(cur->val.len == 0 && cur->type == 0); cur++) {
+    for(cur = c->proxy_protocol_tlv; cur->val.data != ngx_proxy_protocol_tlv_value_sentinel; cur++) {
         if(cur->type == tlv_type) {
             *varval = cur->val;
             return NGX_OK;
@@ -340,7 +342,6 @@ ngx_proxy_protocol_v2_read(ngx_connection_t *c, u_char *buf, u_char *last)
 #if (NGX_HAVE_INET6)
     ngx_proxy_protocol_inet6_addrs_t   *in6;
 #endif
-
     header = (ngx_proxy_protocol_header_t *) buf;
 
     buf += sizeof(ngx_proxy_protocol_header_t);
