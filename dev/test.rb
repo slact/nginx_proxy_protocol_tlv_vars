@@ -81,14 +81,45 @@ module HTTP
   end
 end
 
+module NetHttp2
+  class Client
+    attr_accessor :proxy_protocol_header
+  end
+  PROXY_SETTINGS_KEYS << :proxy_protocol_header
+  module Socket
+    class << self
+      alias :__tcp_socket :tcp_socket
+      def tcp_socket(uri, options)
+        sock = __tcp_socket(uri, options)
+        sock << options[:proxy_protocol_header] if options[:proxy_protocol_header]
+        sock
+      end
+    end
+  end
+end
+
+
 
 class PubSubTest <  Minitest::Test
-  def test_foo
+  def new_pph
     pph = ProxyProtocol.new(version: 2, protocol: :TCP4, source_addr: "127.0.0.1", dest_addr: "127.0.0.2", source_port: 5451, dest_port: 80)
     pph.add_tlv(0x80, "hey i'm a TLV!")
     pph.add_tlv(0x90, "is it me or are you just a TLV?")
     pph.add_tlv(0x91, "foo foo foo foo foo foo foo foo foo foo foo foo foo foo foo foo foo foo foo foo !!!")
-    resp = HTTP.get("http://127.0.0.1:8082/", proxy_protocol_header: pph)
-    puts resp
+    pph
+  end
+  
+  def test_http
+    resp = HTTP.get("http://127.0.0.1:8082/80", proxy_protocol_header: new_pph)
+    assert_equal resp.body.to_s, pph.tlv[0x80]
+  end
+  
+  def test_http2
+    pph = new_pph
+    client = NetHttp2::Client.new("http://127.0.0.1:8083")
+    client.proxy_protocol_header = pph
+    resp = client.call(:get, '/91')
+    client.close
+    puts resp.body
   end
 end

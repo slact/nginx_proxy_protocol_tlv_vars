@@ -71,7 +71,9 @@ class ProxyProtocol
   def version=(val)
     @version = val.to_i
   end
-  
+  def tlv
+    @tlvs
+  end
   def add_tlv(type, val)
     throw "bad type" if type < 0 || type > 255
     @tlvs[type]=val
