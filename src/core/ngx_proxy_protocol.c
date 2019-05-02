@@ -8,11 +8,13 @@
 #include <ngx_config.h>
 #include <ngx_core.h>
 
+
 #define NGX_PROXY_PROTOCOL_AF_INET          1
 #define NGX_PROXY_PROTOCOL_AF_INET6         2
 
 
 #define ngx_proxy_protocol_parse_uint16(p)  ((p)[0] << 8 | (p)[1])
+
 
 typedef struct {
     u_char                                  signature[12];
