@@ -15,6 +15,7 @@ gem 'pry-stack_explorer'
 gem 'pry-state'
 gem 'pry-syntax-hacks'
 gem 'pry-theme'
+gem 'digest-crc'
 
 gem "http"
 gem "net-http2"

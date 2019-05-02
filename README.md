@@ -52,7 +52,7 @@ This patch adds the following variables when using `listen proxy_protocol`:
   > referred to as "SNI". There are probably other situations where an authority
   > can be mentionned on a connection without TLS being involved at all.
   
-#### `$proxy_protocol_tlv_AUTHORITY` (type `0x03`)
+#### `$proxy_protocol_tlv_CRC32C` (type `0x03`)
   > The value of the type PP2_TYPE_CRC32C is a 32-bit number storing the CRC32c
   > checksum of the PROXY protocol header.
 
@@ -66,7 +66,9 @@ This patch adds the following variables when using `listen proxy_protocol`:
 
 - Unlike Nginx Plus, this patch does not parse Amazon's VPC Endpoint ID into `$proxy_protocol_tlv_0xEA`, but uses `$proxy_protocol_tlv_AWS_VPCE_ID` instead. `$proxy_protocol_tlv_0xEA` retains its initial raw value, which Amazon made `"\0x01<vpce_id>"` for some reason.
 
-- As described in the [Proxy Protocol](http://www.haproxy.org/download/1.8/doc/proxy-protocol.txt) spec, the `0x04` (No-op) TLV type is ignored.
+- As required by the [Proxy Protocol](http://www.haproxy.org/download/1.8/doc/proxy-protocol.txt) spec, a PPv2 header message with a bad `CRC32C` checksum TLV is discarded as invalid. This applies to all `$proxy_protocol_*` variables, including `$proxy_protocol_addr` and `$proxy_protocol_port`.
+
+- As required by the [Proxy Protocol](http://www.haproxy.org/download/1.8/doc/proxy-protocol.txt) spec, the `0x04` (No-op) TLV type is ignored.
 
 ## Thanks
 

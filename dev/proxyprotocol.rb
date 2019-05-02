@@ -79,10 +79,36 @@ class ProxyProtocol
     @tlvs[type]=val
   end
   
-  def to_s
+  def add_checksum(opt={})
+    @custom_checksum = opt[:custom][0..3].ljust(4, "\0") if opt[:custom]
+    opt[:bad] ? bad_checksum! : good_checksum!
+    add_tlv 0x03, "\0\0\0\0"
+  end
+  def bad_checksum!
+    @bad_checksum = true
+    @tlvs[0x03] = "\0\0\0\0"
+  end
+  def good_checksum!
+    @custom_checksum = nil
+    @bad_checksum = nil
+  end
+  
+  def checksum
+    if @custom_checksum
+      crc = @custom_checksum
+    else
+      crc = Digest::CRC32c.checksum(self.to_s no_checksum: true)
+      crc -= 1 if @bad_checksum
+      crc = [crc].pack("N")
+    end
+    @tlvs[0x03]=crc
+  end
+  
+  def to_s(opt={})
     throw "bad version" unless [1, 2].include? @version
     out = ""
     if @version == 2 #binary
+      checksum if @tlvs[0x03] && !opt[:no_checksum]
       out << @signature
       out << (0x20 + @command).chr #version and command byte. version is always 0x20
       out << (@addr_family + @protocolv2)
@@ -95,7 +121,7 @@ class ProxyProtocol
       end
       tlvs_str = ""
       @tlvs.each do |type, val|
-        tlvs_str << "#{type.chr}#{[val.length].pack("n")}#{val}"
+        tlvs_str << "#{type.chr}#{[val.length].pack("n")}#{(type == 0x03 && opt[:no_checksum]) ? "\0\0\0\0" : val}"
       end
       out << [addrs.length + tlvs_str.length].pack("n")
       out << addrs
