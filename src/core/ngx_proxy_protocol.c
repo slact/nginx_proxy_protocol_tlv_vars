@@ -260,6 +260,7 @@ ngx_proxy_protocol_v2_next_tlv(u_char **curptr, u_char *last,
 }
 
 static ngx_int_t ngx_proxy_protocol_v2_checksum(u_char *first, u_char *last, ngx_proxy_protocol_tlv_t *tlv) {
+    //TODO
     return NGX_OK;
 }
 
