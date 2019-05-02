@@ -1,6 +1,6 @@
 diff -ur -x '*~' -x '*.swp' nginx-1.16.0/src/core/ngx_connection.h nginx-1.16.0-proxy_protocol_vars/src/core/ngx_connection.h
 --- nginx-1.16.0/src/core/ngx_connection.h	2019-04-23 09:12:58.000000000 -0400
-+++ nginx-1.16.0-proxy_protocol_vars/src/core/ngx_connection.h	2019-05-02 05:44:57.156189835 -0400
++++ nginx-1.16.0-proxy_protocol_vars/src/core/ngx_connection.h	2019-05-02 13:36:39.854660818 -0400
 @@ -12,6 +12,10 @@
  #include <ngx_config.h>
  #include <ngx_core.h>
@@ -12,15 +12,7 @@ diff -ur -x '*~' -x '*.swp' nginx-1.16.0/src/core/ngx_connection.h nginx-1.16.0-
  
  typedef struct ngx_listening_s  ngx_listening_t;
  
-@@ -120,7 +124,6 @@
- #define NGX_SSL_BUFFERED       0x01
- #define NGX_HTTP_V2_BUFFERED   0x02
- 
--
- struct ngx_connection_s {
-     void               *data;
-     ngx_event_t        *read;
-@@ -149,6 +152,7 @@
+@@ -149,6 +153,7 @@
  
      ngx_str_t           proxy_protocol_addr;
      in_port_t           proxy_protocol_port;
@@ -30,19 +22,35 @@ diff -ur -x '*~' -x '*.swp' nginx-1.16.0/src/core/ngx_connection.h nginx-1.16.0-
      ngx_ssl_connection_t  *ssl;
 diff -ur -x '*~' -x '*.swp' nginx-1.16.0/src/core/ngx_proxy_protocol.c nginx-1.16.0-proxy_protocol_vars/src/core/ngx_proxy_protocol.c
 --- nginx-1.16.0/src/core/ngx_proxy_protocol.c	2019-04-23 09:12:58.000000000 -0400
-+++ nginx-1.16.0-proxy_protocol_vars/src/core/ngx_proxy_protocol.c	2019-05-02 05:44:57.156189835 -0400
-@@ -7,7 +7,9 @@
++++ nginx-1.16.0-proxy_protocol_vars/src/core/ngx_proxy_protocol.c	2019-05-02 13:36:39.854660818 -0400
+@@ -39,6 +39,26 @@
+     u_char                                  dst_port[2];
+ } ngx_proxy_protocol_inet6_addrs_t;
  
- #include <ngx_config.h>
- #include <ngx_core.h>
--
-+#include <assert.h>
-+#include <signal.h>
++static ngx_int_t ngx_ppv2_tlv_parse_aws_vpce_id(ngx_connection_t *c, ngx_str_t *in, ngx_str_t *out);
++static ngx_int_t ngx_ppv2_tlv_passthrough(ngx_connection_t *c, ngx_str_t *in, ngx_str_t *out);
++
++typedef struct {
++    ngx_str_t                               name;
++    u_char                                  type;
++    ngx_int_t (*handler)(ngx_connection_t *c, ngx_str_t *value_in, ngx_str_t *value_out);
++} ngx_proxy_protocol_tlv_named_handler_t;
++
++static ngx_proxy_protocol_tlv_named_handler_t ngx_proxy_protocol_tlv_named_handler[] = {
++    { ngx_string("aws_vpce_id"), 0xEA, ngx_ppv2_tlv_parse_aws_vpce_id},
++    { ngx_string("alpn"),        0x01, ngx_ppv2_tlv_passthrough},
++    { ngx_string("authority"),   0x02, ngx_ppv2_tlv_passthrough},
++    { ngx_string("crc32c"),      0x03, ngx_ppv2_tlv_passthrough},
++    { ngx_string("netns"),       0x30, ngx_ppv2_tlv_passthrough},
++    { ngx_null_string,           0x00, NULL}
++};
++
 +static u_char *ngx_proxy_protocol_tlv_value_sentinel = (u_char *)"END";
++
  
- #define NGX_PROXY_PROTOCOL_AF_INET          1
- #define NGX_PROXY_PROTOCOL_AF_INET6         2
-@@ -211,10 +213,168 @@
+ static u_char *ngx_proxy_protocol_v2_read(ngx_connection_t *c, u_char *buf,
+     u_char *last);
+@@ -211,10 +231,185 @@
      return ngx_slprintf(buf, last, " %ui %ui" CRLF, port, lport);
  }
  
@@ -78,10 +86,6 @@ diff -ur -x '*~' -x '*.swp' nginx-1.16.0/src/core/ngx_proxy_protocol.c nginx-1.1
 +    return NGX_OK;
 +}
 +
-+#ifndef ngx_str_match_str
-+#define ngx_str_match_str(ngx_str, str) \
-+    ((ngx_str)->len == sizeof(str)-1 && ngx_memcmp((ngx_str)->data, str, sizeof(str)-1) == 0)
-+#endif
 +static ngx_int_t
 +ngx_proxy_protocol_v2_read_tlv(ngx_connection_t *c, u_char *buf, u_char *first, u_char *last)
 +{
@@ -116,7 +120,6 @@ diff -ur -x '*~' -x '*.swp' nginx-1.16.0/src/core/ngx_proxy_protocol.c nginx-1.1
 +    }
 +    if(tlv_count == 0) {
 +        //no TLVs
-+        assert(c->proxy_protocol_tlv == NULL);
 +        return NGX_OK;
 +    }
 +    ngx_proxy_protocol_tlv_t  *tlvs;
@@ -159,6 +162,24 @@ diff -ur -x '*~' -x '*.swp' nginx-1.16.0/src/core/ngx_proxy_protocol.c nginx-1.1
 +    return NULL;
 +}
 +
++static ngx_int_t ngx_proxy_protocol_tlv_match_named_variable(ngx_connection_t *c, ngx_str_t *var, ngx_str_t *varval) {
++    ngx_proxy_protocol_tlv_named_handler_t *cur;
++    ngx_proxy_protocol_tlv_t *tlv;
++    for(cur = ngx_proxy_protocol_tlv_named_handler; cur->name.data != NULL; cur++) {
++        if (var->len == cur->name.len
++            && ngx_memcmp(var->data, cur->name.data, var->len) == 0)
++        {
++            if((tlv = ngx_proxy_protocol_find_tlv_type(c, cur->type)) == NULL) {
++                //we didn't see this TLV type in the PPv2 header
++                return NGX_DECLINED;
++            }
++            return cur->handler(c, &tlv->val, varval);
++        }
++    }
++    //no such variable
++    return NGX_DECLINED;
++}
++
 +ngx_int_t
 +ngx_proxy_protocol_variable_tlv(ngx_connection_t *c, ngx_str_t *varname,
 +    ngx_str_t *varval)
@@ -185,23 +206,27 @@ diff -ur -x '*~' -x '*.swp' nginx-1.16.0/src/core/ngx_proxy_protocol.c nginx-1.1
 +            *varval = tlv->val;
 +            return NGX_OK;
 +        }
++        //not found
++        return NGX_DECLINED;
 +    }
-+    else if (ngx_str_match_str(&var, "aws_vpce_id")) { //nginx auto-downcases all variables
-+        //https://docs.aws.amazon.com/elasticloadbalancing/latest/network/load-balancer-target-groups.html#proxy-protocol
-+        if ((tlv = ngx_proxy_protocol_find_tlv_type(c, 0xEA)) != NULL
-+            && tlv->val.len > 0
-+            && tlv->val.data[0] == 0x01)
-+        {
-+            *varval = tlv->val;
-+            //strip off the PP2_SUBTYPE_AWS_VPCE_ID byte
-+            varval->len--;
-+            varval->data++;
-+            return NGX_OK;
-+        }
++    return ngx_proxy_protocol_tlv_match_named_variable(c, &var, varval);
++}
++
++static ngx_int_t ngx_ppv2_tlv_parse_aws_vpce_id(ngx_connection_t *c, ngx_str_t *in, ngx_str_t *out) {
++    //https://docs.aws.amazon.com/elasticloadbalancing/latest/network/load-balancer-target-groups.html#proxy-protocol
++    if(in->len == 0 || in->data[0] != 0x01) {
++        //an unecpected first byte to be sure, and an unwelcome one
++        return NGX_DECLINED;
 +    }
-+    
-+    //not found
-+    return NGX_DECLINED;
++    //strip off the PP2_SUBTYPE_AWS_VPCE_ID byte
++    out->len = in->len-1;
++    out->data = in->data+1;
++    return NGX_OK;
++}
++
++static ngx_int_t ngx_ppv2_tlv_passthrough(ngx_connection_t *c, ngx_str_t *in, ngx_str_t *out) {
++    *out = *in;
++    return NGX_OK;
 +}
  
  static u_char *
@@ -211,7 +236,7 @@ diff -ur -x '*~' -x '*.swp' nginx-1.16.0/src/core/ngx_proxy_protocol.c nginx-1.1
      u_char                             *end;
      size_t                              len;
      socklen_t                           socklen;
-@@ -225,7 +385,6 @@
+@@ -225,7 +420,6 @@
  #if (NGX_HAVE_INET6)
      ngx_proxy_protocol_inet6_addrs_t   *in6;
  #endif
@@ -219,7 +244,7 @@ diff -ur -x '*~' -x '*.swp' nginx-1.16.0/src/core/ngx_proxy_protocol.c nginx-1.1
      header = (ngx_proxy_protocol_header_t *) buf;
  
      buf += sizeof(ngx_proxy_protocol_header_t);
-@@ -336,7 +495,8 @@
+@@ -336,7 +530,8 @@
  
      if (buf < end) {
          ngx_log_debug1(NGX_LOG_DEBUG_CORE, c->log, 0,
@@ -231,7 +256,7 @@ diff -ur -x '*~' -x '*.swp' nginx-1.16.0/src/core/ngx_proxy_protocol.c nginx-1.1
      return end;
 diff -ur -x '*~' -x '*.swp' nginx-1.16.0/src/core/ngx_proxy_protocol.h nginx-1.16.0-proxy_protocol_vars/src/core/ngx_proxy_protocol.h
 --- nginx-1.16.0/src/core/ngx_proxy_protocol.h	2019-04-23 09:12:58.000000000 -0400
-+++ nginx-1.16.0-proxy_protocol_vars/src/core/ngx_proxy_protocol.h	2019-05-02 05:44:57.156189835 -0400
++++ nginx-1.16.0-proxy_protocol_vars/src/core/ngx_proxy_protocol.h	2019-05-02 13:36:39.854660818 -0400
 @@ -20,6 +20,8 @@
      u_char *last);
  u_char *ngx_proxy_protocol_write(ngx_connection_t *c, u_char *buf,
@@ -243,7 +268,7 @@ diff -ur -x '*~' -x '*.swp' nginx-1.16.0/src/core/ngx_proxy_protocol.h nginx-1.1
  #endif /* _NGX_PROXY_PROTOCOL_H_INCLUDED_ */
 diff -ur -x '*~' -x '*.swp' nginx-1.16.0/src/http/ngx_http_variables.c nginx-1.16.0-proxy_protocol_vars/src/http/ngx_http_variables.c
 --- nginx-1.16.0/src/http/ngx_http_variables.c	2019-04-23 09:12:58.000000000 -0400
-+++ nginx-1.16.0-proxy_protocol_vars/src/http/ngx_http_variables.c	2019-05-02 05:44:57.156189835 -0400
++++ nginx-1.16.0-proxy_protocol_vars/src/http/ngx_http_variables.c	2019-05-02 13:36:39.854660818 -0400
 @@ -65,6 +65,8 @@
      ngx_http_variable_value_t *v, uintptr_t data);
  static ngx_int_t ngx_http_variable_proxy_protocol_port(ngx_http_request_t *r,
@@ -309,7 +334,7 @@ diff -ur -x '*~' -x '*.swp' nginx-1.16.0/src/http/ngx_http_variables.c nginx-1.1
                  return NGX_ERROR;
 diff -ur -x '*~' -x '*.swp' nginx-1.16.0/src/stream/ngx_stream_variables.c nginx-1.16.0-proxy_protocol_vars/src/stream/ngx_stream_variables.c
 --- nginx-1.16.0/src/stream/ngx_stream_variables.c	2019-04-23 09:12:58.000000000 -0400
-+++ nginx-1.16.0-proxy_protocol_vars/src/stream/ngx_stream_variables.c	2019-05-02 05:44:57.156189835 -0400
++++ nginx-1.16.0-proxy_protocol_vars/src/stream/ngx_stream_variables.c	2019-05-02 13:36:39.854660818 -0400
 @@ -23,6 +23,8 @@
      ngx_stream_session_t *s, ngx_stream_variable_value_t *v, uintptr_t data);
  static ngx_int_t ngx_stream_variable_proxy_protocol_port(
