@@ -6,3 +6,4 @@ errors*.log
 vgcore.*
 captions.txt
 nginx
+.genpatch
