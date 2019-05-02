@@ -68,6 +68,10 @@ This patch adds the following variables when using `listen proxy_protocol`:
 
 - As described in the [Proxy Protocol](http://www.haproxy.org/download/1.8/doc/proxy-protocol.txt) spec, the `0x04` (No-op) TLV type is ignored.
 
+## Thanks
+
+Work on this project was supported by [Ring](https://ring.com/).
+
 ## TODO
 
  - `PP2_TYPE_CRC32C` support
