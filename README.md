@@ -1,12 +1,10 @@
 # nginx_proxy_protocol_tlv_vars
-====
 
 Add support for [Proxy Protocol](http://www.haproxy.org/download/1.8/doc/proxy-protocol.txt) v2 TLV parsing to variables for `http` and `stream` modules.
 
 Nginx released PPv2 support in version 1.15.2, however, they kept TLV parsing limited to the nonfree [Nginx Plus](https://www.nginx.com/blog/nginx-plus-r16-released/#r16-ppv2-privatelink) package. This patch brings that stuff for open source Nginx users.
 
 # Applying Patch
-=====
 
 ```bash
 VERSION=1.16.0 #nginx version to patch
