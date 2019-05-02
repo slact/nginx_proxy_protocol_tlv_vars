@@ -98,6 +98,33 @@ module NetHttp2
   end
 end
 
+RAW_PRIVATELINK_PP2_HEADER = [
+  0x0d, 0x0a, 0x0d, 0x0a, # Start of Sig
+  0x00, 0x0d, 0x0a, 0x51,
+  0x55, 0x49, 0x54, 0x0a, # End of Sig
+  0x21, 0x11, 0x00, 0x54, # ver_cmd, fam and len
+  0xac, 0x1f, 0x07, 0x71, # Caller src ip
+  0xac, 0x1f, 0x0a, 0x1f, # Endpoint dst ip
+  0xc8, 0xf2, 0x00, 0x50, # Proxy src port & dst port
+  0x03, 0x00, 0x04, 0xe8, # CRC TLV start
+  0xd6, 0x89, 0x2d, 0xea, # CRC TLV cont, VPCE id TLV start
+  0x00, 0x17, 0x01, 0x76,
+  0x70, 0x63, 0x65, 0x2d,
+  0x30, 0x38, 0x64, 0x32,
+  0x62, 0x66, 0x31, 0x35,
+  0x66, 0x61, 0x63, 0x35,
+  0x30, 0x30, 0x31, 0x63,
+  0x39, 0x04, 0x00, 0x24, #VPCE id TLV end, NOOP TLV start
+  0x00, 0x00, 0x00, 0x00,
+  0x00, 0x00, 0x00, 0x00,
+  0x00, 0x00, 0x00, 0x00,
+  0x00, 0x00, 0x00, 0x00,
+  0x00, 0x00, 0x00, 0x00,
+  0x00, 0x00, 0x00, 0x00,
+  0x00, 0x00, 0x00, 0x00,
+  0x00, 0x00, 0x00, 0x00,
+  0x00, 0x00, 0x00, 0x00, #NOOP TLV end
+].pack("C*")
 
 class PPv2Test <  Minitest::Test
   def new_pph(min_size=0)
@@ -119,7 +146,7 @@ class PPv2Test <  Minitest::Test
     if block_given?
       block.call(resp.body.to_s, type, pph)
     else
-      assert_equal resp.body.to_s, pph.tlv[type]
+      assert_equal pph.tlv[type], resp.body.to_s
     end
   end
   
@@ -135,7 +162,7 @@ class PPv2Test <  Minitest::Test
       if block_given? then
         block.call(resp.body, type, pph)
       else
-        assert_equal resp.body, pph.tlv[type]
+        assert_equal pph.tlv[type], resp.body
       end
     end
     client.close
@@ -156,4 +183,16 @@ class PPv2Test <  Minitest::Test
   def test_http2_ssl
     assert_http2 ['/0x91', '/0x80'], new_pph, ssl: true
   end
+  
+  def test_raw_aws_privatelink_header
+    assert_http "/0xEA", RAW_PRIVATELINK_PP2_HEADER do |body, type, pph|
+      assert_equal "\x01vpce-08d2bf15fac5001c9", body
+    end
+  end
+  def test_AWS_VPCE_ID
+    assert_http "/AWS_VPCE_ID", RAW_PRIVATELINK_PP2_HEADER do |body, type, pph|
+      assert_equal "vpce-08d2bf15fac5001c9", body
+    end
+  end
+  
 end

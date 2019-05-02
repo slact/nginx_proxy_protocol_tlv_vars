@@ -241,17 +241,40 @@ ngx_proxy_protocol_v2_next_tlv(u_char **curptr, u_char *last,
     return NGX_OK;
 }
 
+static ngx_int_t ngx_proxy_protocol_v2_checksum(u_char *first, u_char *last, ngx_proxy_protocol_tlv_t *tlv) {
+    return NGX_OK;
+}
+
+#ifndef ngx_str_match_str
+#define ngx_str_match_str(ngx_str, str) \
+    ((ngx_str)->len == sizeof(str)-1 && ngx_memcmp((ngx_str)->data, str, sizeof(str)-1) == 0)
+#endif
 static ngx_int_t
-ngx_proxy_protocol_v2_read_tlv(ngx_connection_t *c, u_char *buf, u_char *last)
+ngx_proxy_protocol_v2_read_tlv(ngx_connection_t *c, u_char *buf, u_char *first, u_char *last)
 {
     size_t                    total_data_sz = 0;
     int                       tlv_count = 0;
     ngx_int_t                 rc;
     u_char                   *cur = buf;
+    
     ngx_proxy_protocol_tlv_t  tlv;
     while((rc = ngx_proxy_protocol_v2_next_tlv(&cur, last, &tlv)) == NGX_OK) {
-        tlv_count++;
-        total_data_sz += tlv.val.len;
+        switch(tlv.type) {
+            case 0x04: //no-op
+                //skip it
+                break;
+            case 0x03: //CRC32c
+                if (ngx_proxy_protocol_v2_checksum(first, last, &tlv) != NGX_OK) {
+                    ngx_log_error(NGX_LOG_ERR, c->log, 0,
+                                   "bad PROXY protocol v2 checksum");
+                    return NGX_ERROR;
+                }
+                /* fall through */
+            default:
+                tlv_count++;
+                total_data_sz += tlv.val.len;
+                break;
+        }
     }
     if(rc == NGX_ERROR) {
         ngx_log_error(NGX_LOG_ERR, c->log, 0,
@@ -276,10 +299,12 @@ ngx_proxy_protocol_v2_read_tlv(ngx_connection_t *c, u_char *buf, u_char *last)
     int i=0;
     cur = buf;
     while((rc = ngx_proxy_protocol_v2_next_tlv(&cur, last, &tlvs[i])) == NGX_OK) {
-        ngx_memcpy(valbuf, tlvs[i].val.data, tlvs[i].val.len);
-        tlvs[i].val.data = valbuf;
-        valbuf += tlvs[i].val.len;
-        i++;
+        if(tlvs[i].type != 0x04) { //not NO-OP
+            ngx_memcpy(valbuf, tlvs[i].val.data, tlvs[i].val.len);
+            tlvs[i].val.data = valbuf;
+            valbuf += tlvs[i].val.len;
+            i++;
+        }
     }
     //last TLV is a sentinel to mark the end of the array
     tlvs[i].val.data = ngx_proxy_protocol_tlv_value_sentinel;
@@ -290,13 +315,24 @@ ngx_proxy_protocol_v2_read_tlv(ngx_connection_t *c, u_char *buf, u_char *last)
     return NGX_OK;
 }
 
+static ngx_proxy_protocol_tlv_t *
+ngx_proxy_protocol_find_tlv_type(ngx_connection_t *c, u_char type) {
+    ngx_proxy_protocol_tlv_t   *cur;
+    for(cur = c->proxy_protocol_tlv; cur->val.data != ngx_proxy_protocol_tlv_value_sentinel; cur++) {
+        if(cur->type == type) {
+            return cur;
+        }
+    }
+    return NULL;
+}
+
 ngx_int_t
 ngx_proxy_protocol_variable_tlv(ngx_connection_t *c, ngx_str_t *varname,
     ngx_str_t *varval)
 {
     ngx_str_t                   var;
     ngx_int_t                   tlv_type;
-    ngx_proxy_protocol_tlv_t   *cur;
+    ngx_proxy_protocol_tlv_t   *tlv;
     
     if(!c->proxy_protocol_tlv) {
         //no TLVs at all
@@ -306,32 +342,39 @@ ngx_proxy_protocol_variable_tlv(ngx_connection_t *c, ngx_str_t *varname,
     var = *varname;
     var.data += sizeof("proxy_protocol_tlv_") - 1;
     var.len -= sizeof("proxy_protocol_tlv_") - 1;
-    
-    //check TLVs of the form "0xXX"
-    
     //check for "0x"
-    if (var.len < 2 || var.len > 4 || 
-        var.data[0] != '0' || var.data[1] != 'x')
-    {
-        return NGX_ERROR;
-    }
-    
-    if ((tlv_type = ngx_hextoi(&var.data[2], var.len-2)) == NGX_ERROR) {
-        return NGX_ERROR;
-    }
-
-    for(cur = c->proxy_protocol_tlv; cur->val.data != ngx_proxy_protocol_tlv_value_sentinel; cur++) {
-        if(cur->type == tlv_type) {
-            *varval = cur->val;
+    if (var.len == 4 && var.data[0] == '0' && var.data[1] == 'x') {
+        //check TLVs of the form "0xXX"
+        if ((tlv_type = ngx_hextoi(&var.data[2], var.len-2)) == NGX_ERROR) {
+            return NGX_ERROR;
+        }
+        if ((tlv = ngx_proxy_protocol_find_tlv_type(c, tlv_type)) != NULL) {
+            *varval = tlv->val;
             return NGX_OK;
         }
     }
+    else if (ngx_str_match_str(&var, "aws_vpce_id")) { //nginx auto-downcases all variables
+        //https://docs.aws.amazon.com/elasticloadbalancing/latest/network/load-balancer-target-groups.html#proxy-protocol
+        if ((tlv = ngx_proxy_protocol_find_tlv_type(c, 0xEA)) != NULL
+            && tlv->val.len > 0
+            && tlv->val.data[0] == 0x01)
+        {
+            *varval = tlv->val;
+            //strip off the PP2_SUBTYPE_AWS_VPCE_ID byte
+            varval->len--;
+            varval->data++;
+            return NGX_OK;
+        }
+    }
+    
+    //not found
     return NGX_DECLINED;
 }
 
 static u_char *
 ngx_proxy_protocol_v2_read(ngx_connection_t *c, u_char *buf, u_char *last)
 {
+    u_char                             *start = buf;
     u_char                             *end;
     size_t                              len;
     socklen_t                           socklen;
@@ -451,10 +494,9 @@ ngx_proxy_protocol_v2_read(ngx_connection_t *c, u_char *buf, u_char *last)
                    c->proxy_protocol_port);
 
     if (buf < end) {
-      
         ngx_log_debug1(NGX_LOG_DEBUG_CORE, c->log, 0,
                        "PROXY protocol v2 %z bytes of tlv", end - buf);
-        ngx_proxy_protocol_v2_read_tlv(c, buf, end);
+        ngx_proxy_protocol_v2_read_tlv(c, buf, start, end);
     }
 
     return end;
