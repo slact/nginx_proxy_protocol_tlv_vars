@@ -99,27 +99,61 @@ module NetHttp2
 end
 
 
-
-class PubSubTest <  Minitest::Test
-  def new_pph
+class PPv2Test <  Minitest::Test
+  def new_pph(min_size=0)
     pph = ProxyProtocol.new(version: 2, protocol: :TCP4, source_addr: "127.0.0.1", dest_addr: "127.0.0.2", source_port: 5451, dest_port: 80)
     pph.add_tlv(0x80, "hey i'm a TLV!")
     pph.add_tlv(0x90, "is it me or are you just a TLV?")
-    pph.add_tlv(0x91, "foo foo foo foo foo foo foo foo foo foo foo foo foo foo foo foo foo foo foo foo !!!")
+    pph.add_tlv(0x91, "foo foo foo foo foo !!!")
     pph
   end
   
+  def assert_http(url, pph, opt={}, &block)
+    throw "url must start with /" unless url.match("^/")
+    if opt[:ssl]
+      ssl_ctx = OpenSSL::SSL::SSLContext.new
+      ssl_ctx.verify_mode = OpenSSL::SSL::VERIFY_NONE
+    end
+    resp = HTTP.get("#{opt[:ssl] ? "https://127.0.0.1:8092" : "http://127.0.0.1:8082"}#{url}", proxy_protocol_header: pph, ssl_context: ssl_ctx)
+    type = opt[:type] || url.match("^/(.*)")[1].to_i(16) || url.match("^/(.*)")[1]
+    if block_given?
+      block.call(resp.body.to_s, type, pph)
+    else
+      assert_equal resp.body.to_s, pph.tlv[type]
+    end
+  end
+  
+  def assert_http2(urls, pph, opt={}, &block)
+    client = NetHttp2::Client.new(opt[:ssl] ? "https://127.0.0.1:8093" : "http://127.0.0.1:8083")
+    client.proxy_protocol_header = pph
+    urls = Array urls
+    types = Array(opt[:type] || opt[:types])
+    urls.each_with_index do |u, i|
+      throw "url must start with /" unless u.match("^/")
+      resp=client.call(:get, u)
+      type = opt[:type] || u.match("^/(.*)")[1].to_i(16) || u.match("^/(.*)")[1]
+      if block_given? then
+        block.call(resp.body, type, pph)
+      else
+        assert_equal resp.body, pph.tlv[type]
+      end
+    end
+    client.close
+  end
+  
   def test_http
-    resp = HTTP.get("http://127.0.0.1:8082/80", proxy_protocol_header: new_pph)
-    assert_equal resp.body.to_s, pph.tlv[0x80]
+    assert_http "/0x80", new_pph
+  end
+  
+  def test_http_ssl
+    assert_http "/0x80", new_pph, ssl: true
   end
   
   def test_http2
-    pph = new_pph
-    client = NetHttp2::Client.new("http://127.0.0.1:8083")
-    client.proxy_protocol_header = pph
-    resp = client.call(:get, '/91')
-    client.close
-    puts resp.body
+    assert_http2 ['/0x91', '/0x80'], new_pph
+  end
+  
+  def test_http2_ssl
+    assert_http2 ['/0x91', '/0x80'], new_pph, ssl: true
   end
 end
