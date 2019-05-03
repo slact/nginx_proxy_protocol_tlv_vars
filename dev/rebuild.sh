@@ -19,7 +19,7 @@ _extra_config_opt=()
 
 export WITH_STREAM_MODULE=1
 
-export REPLACE_SOURCE=1
+export PATCH_SOURCE=1
 
 #export WITH_LUA_MODULE=1
 

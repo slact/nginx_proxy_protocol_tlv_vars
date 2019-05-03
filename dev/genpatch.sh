@@ -40,12 +40,13 @@ tar xzf $base.tar.gz
 cp $base $patched -Rf
 
 pushd ../../src
-changed=( `find -type f` )
+changed=( `find -type f -not -name "*.orig"` )
 popd
 
 for f in $changed; do
-  echo  $f
-  ln -sf `realpath "../../src/$f"` `realpath "$patched/src/$f"`
+  #echo  $f
+  diff  -ur ../../src/$f.orig ../../src/$f | patch $patched/src/$f
+  #ln -sf `realpath "../../src/$f"` `realpath "$patched/src/$f"`
 done
 
 rm $patched/src/nginx-source
@@ -53,11 +54,10 @@ rm $patched/src/nginx
 if [[ $2 == "meld" ]]; then
   meld -a  $patched $base
 else
-  diff -ur -x '*~' -x '*.swp' $base/src $patched/src |colordiff
+  diff -ur -x '*~' -x '*.swp' $base/src $patched/src | colordiff
 fi
 if confirm "Patch for $base looks ok?"; then
   diff -ur -x '*~' -x '*.swp' $base/src $patched/src > ../../$patched.patch
-  cat ../../$patched.patch
   echo "${GREEN}saved to $patched.patch${ALL_OFF}"
 else
   echo "${YELLOW}ok, double-check it then${ALL_OFF}"

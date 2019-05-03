@@ -226,9 +226,13 @@ build() {
   local _build_dir="${_src_dir}/objs"
   cd "$srcdir/${_extracted_dir}"
   
-  if [[ -n $REPLACE_SOURCE ]]; then
-    echo "YEAH"
-    cp -Rfv $srcdir/proxy_protocol_vars/src ./
+  if [[ -n $PATCH_SOURCE ]]; then
+    pushd $srcdir/proxy_protocol_vars/src 2>/dev/null
+    __changed=`find -type f -not -name "*.orig"`
+    popd 2>/dev/null
+    for f in $__changed; do
+      diff  -ur $srcdir/proxy_protocol_vars/src/$f.orig $srcdir/proxy_protocol_vars/src/$f | patch src/$f
+    done
   fi
   
   if [[ -z $USE_OPENRESTY ]]; then
