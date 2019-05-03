@@ -73,7 +73,3 @@ This patch adds the following variables when using `listen proxy_protocol`:
 ## Thanks
 
 Work on this project was supported by [Ring](https://ring.com/).
-
-## TODO
-
- - `PP2_TYPE_CRC32C` support
