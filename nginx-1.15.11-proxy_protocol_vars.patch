@@ -1,6 +1,6 @@
-diff -ur -x '*~' -x '*.swp' nginx-1.16.0/src/core/ngx_connection.h nginx-1.16.0-proxy_protocol_vars/src/core/ngx_connection.h
---- nginx-1.16.0/src/core/ngx_connection.h	2019-04-23 09:12:58.000000000 -0400
-+++ nginx-1.16.0-proxy_protocol_vars/src/core/ngx_connection.h	2019-05-03 01:41:08.833288017 -0400
+diff -ur -x '*~' -x '*.swp' nginx-1.15.11/src/core/ngx_connection.h nginx-1.15.11-proxy_protocol_vars/src/core/ngx_connection.h
+--- nginx-1.15.11/src/core/ngx_connection.h	2019-04-09 09:00:30.000000000 -0400
++++ nginx-1.15.11-proxy_protocol_vars/src/core/ngx_connection.h	2019-05-03 01:41:09.556623972 -0400
 @@ -12,6 +12,10 @@
  #include <ngx_config.h>
  #include <ngx_core.h>
@@ -20,9 +20,9 @@ diff -ur -x '*~' -x '*.swp' nginx-1.16.0/src/core/ngx_connection.h nginx-1.16.0-
  
  #if (NGX_SSL || NGX_COMPAT)
      ngx_ssl_connection_t  *ssl;
-diff -ur -x '*~' -x '*.swp' nginx-1.16.0/src/core/ngx_proxy_protocol.c nginx-1.16.0-proxy_protocol_vars/src/core/ngx_proxy_protocol.c
---- nginx-1.16.0/src/core/ngx_proxy_protocol.c	2019-04-23 09:12:58.000000000 -0400
-+++ nginx-1.16.0-proxy_protocol_vars/src/core/ngx_proxy_protocol.c	2019-05-03 01:41:08.829954672 -0400
+diff -ur -x '*~' -x '*.swp' nginx-1.15.11/src/core/ngx_proxy_protocol.c nginx-1.15.11-proxy_protocol_vars/src/core/ngx_proxy_protocol.c
+--- nginx-1.15.11/src/core/ngx_proxy_protocol.c	2019-04-09 09:00:30.000000000 -0400
++++ nginx-1.15.11-proxy_protocol_vars/src/core/ngx_proxy_protocol.c	2019-05-03 01:41:09.549957282 -0400
 @@ -39,6 +39,80 @@
      u_char                                  dst_port[2];
  } ngx_proxy_protocol_inet6_addrs_t;
@@ -320,9 +320,9 @@ diff -ur -x '*~' -x '*.swp' nginx-1.16.0/src/core/ngx_proxy_protocol.c nginx-1.1
      }
  
      return end;
-diff -ur -x '*~' -x '*.swp' nginx-1.16.0/src/core/ngx_proxy_protocol.h nginx-1.16.0-proxy_protocol_vars/src/core/ngx_proxy_protocol.h
---- nginx-1.16.0/src/core/ngx_proxy_protocol.h	2019-04-23 09:12:58.000000000 -0400
-+++ nginx-1.16.0-proxy_protocol_vars/src/core/ngx_proxy_protocol.h	2019-05-03 01:41:08.829954672 -0400
+diff -ur -x '*~' -x '*.swp' nginx-1.15.11/src/core/ngx_proxy_protocol.h nginx-1.15.11-proxy_protocol_vars/src/core/ngx_proxy_protocol.h
+--- nginx-1.15.11/src/core/ngx_proxy_protocol.h	2019-04-09 09:00:30.000000000 -0400
++++ nginx-1.15.11-proxy_protocol_vars/src/core/ngx_proxy_protocol.h	2019-05-03 01:41:09.553290627 -0400
 @@ -20,6 +20,8 @@
      u_char *last);
  u_char *ngx_proxy_protocol_write(ngx_connection_t *c, u_char *buf,
@@ -332,9 +332,9 @@ diff -ur -x '*~' -x '*.swp' nginx-1.16.0/src/core/ngx_proxy_protocol.h nginx-1.1
  
  
  #endif /* _NGX_PROXY_PROTOCOL_H_INCLUDED_ */
-diff -ur -x '*~' -x '*.swp' nginx-1.16.0/src/http/ngx_http_variables.c nginx-1.16.0-proxy_protocol_vars/src/http/ngx_http_variables.c
---- nginx-1.16.0/src/http/ngx_http_variables.c	2019-04-23 09:12:58.000000000 -0400
-+++ nginx-1.16.0-proxy_protocol_vars/src/http/ngx_http_variables.c	2019-05-03 01:41:08.829954672 -0400
+diff -ur -x '*~' -x '*.swp' nginx-1.15.11/src/http/ngx_http_variables.c nginx-1.15.11-proxy_protocol_vars/src/http/ngx_http_variables.c
+--- nginx-1.15.11/src/http/ngx_http_variables.c	2019-04-09 09:00:30.000000000 -0400
++++ nginx-1.15.11-proxy_protocol_vars/src/http/ngx_http_variables.c	2019-05-03 01:41:09.546623936 -0400
 @@ -65,6 +65,8 @@
      ngx_http_variable_value_t *v, uintptr_t data);
  static ngx_int_t ngx_http_variable_proxy_protocol_port(ngx_http_request_t *r,
@@ -387,9 +387,9 @@ diff -ur -x '*~' -x '*.swp' nginx-1.16.0/src/http/ngx_http_variables.c nginx-1.1
  
  static ngx_int_t
  ngx_http_variable_server_addr(ngx_http_request_t *r,
-diff -ur -x '*~' -x '*.swp' nginx-1.16.0/src/stream/ngx_stream_variables.c nginx-1.16.0-proxy_protocol_vars/src/stream/ngx_stream_variables.c
---- nginx-1.16.0/src/stream/ngx_stream_variables.c	2019-04-23 09:12:58.000000000 -0400
-+++ nginx-1.16.0-proxy_protocol_vars/src/stream/ngx_stream_variables.c	2019-05-03 01:41:08.829954672 -0400
+diff -ur -x '*~' -x '*.swp' nginx-1.15.11/src/stream/ngx_stream_variables.c nginx-1.15.11-proxy_protocol_vars/src/stream/ngx_stream_variables.c
+--- nginx-1.15.11/src/stream/ngx_stream_variables.c	2019-04-09 09:00:30.000000000 -0400
++++ nginx-1.15.11-proxy_protocol_vars/src/stream/ngx_stream_variables.c	2019-05-03 01:41:09.546623936 -0400
 @@ -23,6 +23,8 @@
      ngx_stream_session_t *s, ngx_stream_variable_value_t *v, uintptr_t data);
  static ngx_int_t ngx_stream_variable_proxy_protocol_port(
