@@ -276,7 +276,9 @@ build() {
     export CFLAGS="$CFLAGS -fmudflap"
   fi
 
-  #CFLAGS="${CFLAGS/-Werror/}" #no warning-as-error
+  if [[ -n $NO_WERROR ]]; then
+    CFLAGS="${CFLAGS/-Werror/}" #no warning-as-error
+  fi
   
   CONFIGURE=()
   

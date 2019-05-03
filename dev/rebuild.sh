@@ -63,6 +63,8 @@ for opt in $*; do
       export NO_MAKE=1;;
     nodebug)
       export NO_DEBUG=1;;
+    Wno-error)
+      export NO_WERROR=1;;
     echo_module)
       export WITH_NGX_ECHO_MODULE=1;;
     pagespeed)
