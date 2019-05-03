@@ -18,7 +18,7 @@ gem 'pry-theme'
 gem 'digest-crc'
 
 gem "http"
-gem "net-http2"
+gem "http-2"
 
 
 gem 'minitest'

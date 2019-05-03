@@ -137,3 +137,86 @@ class ProxyProtocol
     out
   end
 end
+
+
+module HTTP
+  class Options
+    attr_accessor :proxy_protocol_header
+  end
+  class Connection
+    alias :__initialize :initialize
+    def initialize(req, options)
+      @proxy_protocol_header=options.proxy_protocol_header
+      __initialize req, options
+    end
+    alias :__send_proxy_connect_request :send_proxy_connect_request
+    def send_proxy_connect_request(req)
+      ret = __send_proxy_connect_request(req)
+      @socket << @proxy_protocol_header.to_s if @proxy_protocol_header
+      ret
+    end
+  end
+end
+
+class HTTP2Client
+  class Response
+    attr_accessor :status, :headers, :body
+    def initialize(headers, body)
+      @headers = {}
+      binding.pry if headers.nil?
+      headers.each { |h| @headers[h[0]]=h[1] }
+      @status = @headers[":status"].to_i
+      @body = body
+    end
+  end
+  def initialize(uri, opt={})
+    @pph = opt[:proxy_protocol_header]
+    @uri = URI.parse(uri)
+    @tcp = TCPSocket.new @uri.host, @uri.port
+    
+    @tcp << @pph.to_s if @pph
+    
+    if @uri.scheme == "https"
+      @ssl_ctx = OpenSSL::SSL::SSLContext.new
+      @ssl_ctx.verify_mode = OpenSSL::SSL::VERIFY_NONE
+      @ssl_ctx.alpn_protocols = [ "h2".freeze ]
+      @sock = OpenSSL::SSL::SSLSocket.new(@tcp, @ssl_ctx)
+      @sock.sync_close = true
+      @sock.hostname = @uri.hostname
+      @sock.connect
+    else
+      @sock = @tcp
+    end
+    @client = HTTP2::Client.new
+    @client.on(:frame) {|bytes| @sock.print bytes; @sock.flush}
+  end
+  def get(url)
+    throw "http/2 client already closed" if @closed
+    stream = @client.new_stream
+    request_done = false
+    stream.on(:close) do
+      request_done = true
+    end
+    headers = nil
+    body = ""
+    head = {
+      ':scheme' => @uri.scheme,
+      ':method' => 'GET',
+      ':authority' => [@uri.host, @uri.port].join(':'),
+      ':path' => url,
+      'accept' => "*/*"
+    }
+    stream.on(:data) {|d| body << d}
+    stream.on(:headers) {|h| headers = h}
+      
+    stream.headers(head, end_stream: true)
+    while !request_done && !@sock.closed? && !@sock.eof?
+      @client << @sock.read_nonblock(1024)
+    end
+    return Response.new(headers, body)
+  end
+  def close
+    @sock.close
+    @closed = true
+  end
+end

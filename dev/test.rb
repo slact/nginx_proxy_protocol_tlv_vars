@@ -7,7 +7,7 @@ require 'minitest/reporters'
 require "minitest/autorun"
 
 require "http"
-require "net-http2"
+require "http/2"
 require "digest/crc32c"
 require "pry"
 require_relative "proxyprotocol.rb"
@@ -61,42 +61,6 @@ end
 def url(part="")
   part=part[1..-1] if part[0]=="/"
   "#{$server_url}/#{part}"
-end
-
-module HTTP
-  class Options
-    attr_accessor :proxy_protocol_header
-  end
-  class Connection
-    alias :__initialize :initialize
-    def initialize(req, options)
-      @proxy_protocol_header=options.proxy_protocol_header
-      __initialize req, options
-    end
-    alias :__send_proxy_connect_request :send_proxy_connect_request
-    def send_proxy_connect_request(req)
-      ret = __send_proxy_connect_request(req)
-      @socket << @proxy_protocol_header.to_s if @proxy_protocol_header
-      ret
-    end
-  end
-end
-
-module NetHttp2
-  class Client
-    attr_accessor :proxy_protocol_header
-  end
-  PROXY_SETTINGS_KEYS << :proxy_protocol_header
-  module Socket
-    class << self
-      alias :__tcp_socket :tcp_socket
-      def tcp_socket(uri, options)
-        sock = __tcp_socket(uri, options)
-        sock << options[:proxy_protocol_header] if options[:proxy_protocol_header]
-        sock
-      end
-    end
-  end
 end
 
 RAW_PRIVATELINK_PP2_HEADER = [
@@ -188,15 +152,14 @@ class PPv2Test <  Minitest::Test
   end
   
   def assert_http2(urls, pph, opt={}, &block)
-    client = NetHttp2::Client.new(opt[:ssl] ? "https://127.0.0.1:8093" : "http://127.0.0.1:8083")
-    client.proxy_protocol_header = pph
+    client = HTTP2Client.new(opt[:ssl] ? "https://127.0.0.1:8093" : "http://127.0.0.1:8083", proxy_protocol_header: pph)
     urls = Array urls
     types = Array(opt[:type] || opt[:types])
     urls.each_with_index do |u, i|
       throw "url must start with /" unless u.match("^/")
-      resp=client.call(:get, u)
-      type = opt[:type] || u.match("^/(.*)")[1].to_i(16) || u.match("^/(.*)")[1]
-      assert_equal 200, resp.status.to_i, "bad response code"
+      resp = client.get u
+      type = types[i] || u.match("^/(.*)")[1].to_i(16) || u.match("^/(.*)")[1]
+      assert_equal 200, resp.status, "bad response code"
       if block_given? then
         block.call(resp.body, type, pph)
       else
