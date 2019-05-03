@@ -84,6 +84,9 @@ class ProxyProtocol
     opt[:bad] ? bad_checksum! : good_checksum!
     add_tlv 0x03, "\0\0\0\0"
   end
+  def bad_checksum?
+    @bad_checksum || @custom_checksum
+  end
   def bad_checksum!
     @bad_checksum = true
     @tlvs[0x03] = "\0\0\0\0"

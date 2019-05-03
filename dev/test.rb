@@ -123,6 +123,63 @@ class PPv2Test <  Minitest::Test
     pph
   end
   
+  def assert_stream(pph, opt={})
+    port = opt[:ssl] ? 8192 : 8182
+    tcp = TCPSocket.new "127.0.0.1", port
+    tcp << pph.to_s if pph
+    
+    if opt[:ssl]
+      ssl_ctx = OpenSSL::SSL::SSLContext.new
+      ssl_ctx.verify_mode = OpenSSL::SSL::VERIFY_NONE
+      sock = OpenSSL::SSL::SSLSocket.new(tcp, ssl_ctx)
+      sock.sync_close = true
+      sock.hostname = "127.0.0.1"
+      sock.connect
+    else
+      sock = tcp
+    end
+    buf = sock.read
+    sock.close
+    data = {}
+    buf.each_line do |l|
+      m = l.match("^(?<key>[^:]+): (?<val>.*)\r?\n?")
+      if m[:key].match "^0x"
+        data[m[:key].to_i(16)]=m[:val]
+      else
+        data[m[:key]]=m[:val]
+      end
+    end
+    if not pph or pph.bad_checksum? then
+      data.each do |k, v|
+        assert_equal "", v, "bad #{k} value"
+      end
+    else
+      data.each do |k, v|
+        if k == "port"
+          assert_equal pph.source_port.to_s, v
+        elsif k == "addr"
+          assert_equal pph.source_addr.to_s, v
+        elsif k == "ALPN"
+          assert_equal pph.tlv[0x01] || "", v
+        elsif k == "AUTHORITY"
+          assert_equal pph.tlv[0x02] || "", v
+        elsif k == "CRC32C"
+          assert_equal pph.tlv[0x03] || "", v
+        elsif k == "NETNS"
+          assert_equal pph.tlv[0x30] || "", v
+        elsif k == "AWS_VPCE_ID"
+          assert_equal (pph.tlv[0xEA] ? pph.tlv[0xEA][1..-1] : ""), v
+        elsif Numeric === k
+          if k == 0x04 #no-op
+            assert_equal "", v, "no-op should be empty"
+          else
+            assert_equal pph.tlv[k] || "", v, "TLV 0x#{k.to_s 16}"
+          end
+        end
+      end
+    end
+  end
+  
   def assert_all_transports(url, pph, opt = {})
     assert_http url, pph, opt
     assert_http url, pph, opt.merge(ssl: true)
@@ -271,5 +328,25 @@ class PPv2Test <  Minitest::Test
     assert_all_transports "/0x80", pph, body: ""
     assert_all_transports "/proxy_protocol_port", pph, body: ""
     assert_all_transports "/proxy_protocol_addr", pph, body: ""
+  end
+  
+  
+  def test_stream_ssl
+    assert_stream(new_pph, ssl: true)
+  end
+  def test_stream
+    assert_stream(new_pph)
+  end
+  def test_stream_aws_privatelink_header
+    pph = new_pph({0xEA =>"\1vpc-banana", 0x04 => 'on no-op'})
+    pph.checksum
+    assert_stream(pph)
+    assert_stream(pph, ssl: true)
+  end
+  def test_stream_bad_checksum
+    pph = new_pph
+    pph.bad_checksum!
+    assert_stream(pph)
+    assert_stream(pph, ssl: true)
   end
 end

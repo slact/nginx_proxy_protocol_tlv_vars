@@ -306,6 +306,9 @@ build() {
     
   if [[ -n $WITH_STREAM_MODULE ]]; then
     CONFIGURE+=( --with-stream )
+    if [[ -n $WITH_HTTP_SSL ]]; then
+      CONFIGURE+=( --with-stream_ssl_module )
+    fi
   fi
 
   if [[ -n $WITH_STUB_STATUS_MODULE ]]; then
