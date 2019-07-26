@@ -1,0 +1,443 @@
+diff -ur -x '*~' -x '*.swp' nginx-1.17.2/src/core/ngx_connection.h nginx-1.17.2-proxy_protocol_vars/src/core/ngx_connection.h
+--- nginx-1.17.2/src/core/ngx_connection.h	2019-07-23 08:01:47.000000000 -0400
++++ nginx-1.17.2-proxy_protocol_vars/src/core/ngx_connection.h	2019-07-25 21:57:11.139780950 -0400
+@@ -12,6 +12,10 @@
+ #include <ngx_config.h>
+ #include <ngx_core.h>
+ 
++typedef struct {
++  uint8_t               type;
++  ngx_str_t             val;
++} ngx_proxy_protocol_tlv_t;
+ 
+ typedef struct ngx_listening_s  ngx_listening_t;
+ 
+@@ -149,6 +153,7 @@
+ 
+     ngx_str_t           proxy_protocol_addr;
+     in_port_t           proxy_protocol_port;
++    ngx_proxy_protocol_tlv_t *proxy_protocol_tlv;
+ 
+ #if (NGX_SSL || NGX_COMPAT)
+     ngx_ssl_connection_t  *ssl;
+diff -ur -x '*~' -x '*.swp' nginx-1.17.2/src/core/ngx_proxy_protocol.c nginx-1.17.2-proxy_protocol_vars/src/core/ngx_proxy_protocol.c
+--- nginx-1.17.2/src/core/ngx_proxy_protocol.c	2019-07-23 08:01:47.000000000 -0400
++++ nginx-1.17.2-proxy_protocol_vars/src/core/ngx_proxy_protocol.c	2019-07-25 21:57:11.136447607 -0400
+@@ -39,6 +39,80 @@
+     u_char                                  dst_port[2];
+ } ngx_proxy_protocol_inet6_addrs_t;
+ 
++// CRC32c
++// pycrc --algorithm=table-driven --model=crc-32c --std=ANSI --symbol-prefix=ngx_ppv2_crc32c_ --generate=h
++typedef unsigned long int ngx_ppv2_crc32c_t;
++#define ngx_ppv2_crc32c_init()      (0xffffffff)
++#define ngx_ppv2_crc32c_finalize(crc)      (crc ^ 0xffffffff)
++// pycrc --algorithm=table-driven --model=crc-32c --std=ANSI --symbol-prefix=ngx_ppv2_crc32c_ --generate=c
++static const ngx_ppv2_crc32c_t crc_table[256] = {
++    0x00000000, 0xf26b8303, 0xe13b70f7, 0x1350f3f4, 0xc79a971f, 0x35f1141c, 0x26a1e7e8, 0xd4ca64eb,
++    0x8ad958cf, 0x78b2dbcc, 0x6be22838, 0x9989ab3b, 0x4d43cfd0, 0xbf284cd3, 0xac78bf27, 0x5e133c24,
++    0x105ec76f, 0xe235446c, 0xf165b798, 0x030e349b, 0xd7c45070, 0x25afd373, 0x36ff2087, 0xc494a384,
++    0x9a879fa0, 0x68ec1ca3, 0x7bbcef57, 0x89d76c54, 0x5d1d08bf, 0xaf768bbc, 0xbc267848, 0x4e4dfb4b,
++    0x20bd8ede, 0xd2d60ddd, 0xc186fe29, 0x33ed7d2a, 0xe72719c1, 0x154c9ac2, 0x061c6936, 0xf477ea35,
++    0xaa64d611, 0x580f5512, 0x4b5fa6e6, 0xb93425e5, 0x6dfe410e, 0x9f95c20d, 0x8cc531f9, 0x7eaeb2fa,
++    0x30e349b1, 0xc288cab2, 0xd1d83946, 0x23b3ba45, 0xf779deae, 0x05125dad, 0x1642ae59, 0xe4292d5a,
++    0xba3a117e, 0x4851927d, 0x5b016189, 0xa96ae28a, 0x7da08661, 0x8fcb0562, 0x9c9bf696, 0x6ef07595,
++    0x417b1dbc, 0xb3109ebf, 0xa0406d4b, 0x522bee48, 0x86e18aa3, 0x748a09a0, 0x67dafa54, 0x95b17957,
++    0xcba24573, 0x39c9c670, 0x2a993584, 0xd8f2b687, 0x0c38d26c, 0xfe53516f, 0xed03a29b, 0x1f682198,
++    0x5125dad3, 0xa34e59d0, 0xb01eaa24, 0x42752927, 0x96bf4dcc, 0x64d4cecf, 0x77843d3b, 0x85efbe38,
++    0xdbfc821c, 0x2997011f, 0x3ac7f2eb, 0xc8ac71e8, 0x1c661503, 0xee0d9600, 0xfd5d65f4, 0x0f36e6f7,
++    0x61c69362, 0x93ad1061, 0x80fde395, 0x72966096, 0xa65c047d, 0x5437877e, 0x4767748a, 0xb50cf789,
++    0xeb1fcbad, 0x197448ae, 0x0a24bb5a, 0xf84f3859, 0x2c855cb2, 0xdeeedfb1, 0xcdbe2c45, 0x3fd5af46,
++    0x7198540d, 0x83f3d70e, 0x90a324fa, 0x62c8a7f9, 0xb602c312, 0x44694011, 0x5739b3e5, 0xa55230e6,
++    0xfb410cc2, 0x092a8fc1, 0x1a7a7c35, 0xe811ff36, 0x3cdb9bdd, 0xceb018de, 0xdde0eb2a, 0x2f8b6829,
++    0x82f63b78, 0x709db87b, 0x63cd4b8f, 0x91a6c88c, 0x456cac67, 0xb7072f64, 0xa457dc90, 0x563c5f93,
++    0x082f63b7, 0xfa44e0b4, 0xe9141340, 0x1b7f9043, 0xcfb5f4a8, 0x3dde77ab, 0x2e8e845f, 0xdce5075c,
++    0x92a8fc17, 0x60c37f14, 0x73938ce0, 0x81f80fe3, 0x55326b08, 0xa759e80b, 0xb4091bff, 0x466298fc,
++    0x1871a4d8, 0xea1a27db, 0xf94ad42f, 0x0b21572c, 0xdfeb33c7, 0x2d80b0c4, 0x3ed04330, 0xccbbc033,
++    0xa24bb5a6, 0x502036a5, 0x4370c551, 0xb11b4652, 0x65d122b9, 0x97baa1ba, 0x84ea524e, 0x7681d14d,
++    0x2892ed69, 0xdaf96e6a, 0xc9a99d9e, 0x3bc21e9d, 0xef087a76, 0x1d63f975, 0x0e330a81, 0xfc588982,
++    0xb21572c9, 0x407ef1ca, 0x532e023e, 0xa145813d, 0x758fe5d6, 0x87e466d5, 0x94b49521, 0x66df1622,
++    0x38cc2a06, 0xcaa7a905, 0xd9f75af1, 0x2b9cd9f2, 0xff56bd19, 0x0d3d3e1a, 0x1e6dcdee, 0xec064eed,
++    0xc38d26c4, 0x31e6a5c7, 0x22b65633, 0xd0ddd530, 0x0417b1db, 0xf67c32d8, 0xe52cc12c, 0x1747422f,
++    0x49547e0b, 0xbb3ffd08, 0xa86f0efc, 0x5a048dff, 0x8ecee914, 0x7ca56a17, 0x6ff599e3, 0x9d9e1ae0,
++    0xd3d3e1ab, 0x21b862a8, 0x32e8915c, 0xc083125f, 0x144976b4, 0xe622f5b7, 0xf5720643, 0x07198540,
++    0x590ab964, 0xab613a67, 0xb831c993, 0x4a5a4a90, 0x9e902e7b, 0x6cfbad78, 0x7fab5e8c, 0x8dc0dd8f,
++    0xe330a81a, 0x115b2b19, 0x020bd8ed, 0xf0605bee, 0x24aa3f05, 0xd6c1bc06, 0xc5914ff2, 0x37faccf1,
++    0x69e9f0d5, 0x9b8273d6, 0x88d28022, 0x7ab90321, 0xae7367ca, 0x5c18e4c9, 0x4f48173d, 0xbd23943e,
++    0xf36e6f75, 0x0105ec76, 0x12551f82, 0xe03e9c81, 0x34f4f86a, 0xc69f7b69, 0xd5cf889d, 0x27a40b9e,
++    0x79b737ba, 0x8bdcb4b9, 0x988c474d, 0x6ae7c44e, 0xbe2da0a5, 0x4c4623a6, 0x5f16d052, 0xad7d5351
++};
++static ngx_ppv2_crc32c_t ngx_ppv2_crc32c_update(ngx_ppv2_crc32c_t crc, const void *data, size_t data_len)
++{
++    const unsigned char *d = (const unsigned char *)data;
++    unsigned int tbl_idx;
++
++    while (data_len--) {
++        tbl_idx = (crc ^ *d) & 0xff;
++        crc = (crc_table[tbl_idx] ^ (crc >> 8)) & 0xffffffff;
++
++        d++;
++    }
++    return crc & 0xffffffff;
++}
++
++static ngx_int_t ngx_ppv2_tlv_parse_aws_vpce_id(ngx_connection_t *c, ngx_str_t *in, ngx_str_t *out);
++static ngx_int_t ngx_ppv2_tlv_passthrough(ngx_connection_t *c, ngx_str_t *in, ngx_str_t *out);
++
++typedef struct {
++    ngx_str_t                               name;
++    u_char                                  type;
++    ngx_int_t (*handler)(ngx_connection_t *c, ngx_str_t *value_in, ngx_str_t *value_out);
++} ngx_proxy_protocol_tlv_named_handler_t;
++
++static ngx_proxy_protocol_tlv_named_handler_t ngx_proxy_protocol_tlv_named_handler[] = {
++    { ngx_string("aws_vpce_id"), 0xEA, ngx_ppv2_tlv_parse_aws_vpce_id},
++    { ngx_string("alpn"),        0x01, ngx_ppv2_tlv_passthrough},
++    { ngx_string("authority"),   0x02, ngx_ppv2_tlv_passthrough},
++    { ngx_string("crc32c"),      0x03, ngx_ppv2_tlv_passthrough},
++    { ngx_string("netns"),       0x30, ngx_ppv2_tlv_passthrough},
++    { ngx_null_string,           0x00, NULL}
++};
++
++static u_char *ngx_proxy_protocol_tlv_value_sentinel = (u_char *)"END";
++
+ 
+ static u_char *ngx_proxy_protocol_v2_read(ngx_connection_t *c, u_char *buf,
+     u_char *last);
+@@ -211,10 +285,205 @@
+     return ngx_slprintf(buf, last, " %ui %ui" CRLF, port, lport);
+ }
+ 
++static ngx_int_t
++ngx_proxy_protocol_v2_next_tlv(u_char **curptr, u_char *last, 
++    ngx_proxy_protocol_tlv_t *tlv)
++{
++    uint8_t type;
++    uint16_t len;
++    u_char *cur = *curptr;
++    if(cur == last) {
++        //no more TLVs
++        return NGX_DONE;
++    }
++    if(cur+3 > last) {
++        return NGX_ERROR;
++    }
++    type = *cur;
++    cur++;
++    len = ngx_proxy_protocol_parse_uint16(cur);
++    cur+=2;
++    if(cur+len > last) {
++        return NGX_ERROR;
++    }
++    tlv->type = type;
++    tlv->val.len = len;
++    tlv->val.data = cur;
++    *curptr = cur+len;
++    return NGX_OK;
++}
++
++static ngx_int_t ngx_proxy_protocol_v2_checksum(u_char *start, u_char *end, ngx_proxy_protocol_tlv_t *tlv) {
++    u_char                              saved_crc[4];
++    ngx_ppv2_crc32c_t                   given_crc, crc;
++    ngx_memcpy(saved_crc, tlv->val.data, 4);
++    given_crc = ntohl(*(uint32_t *)saved_crc);
++    
++    ngx_memzero(tlv->val.data, 4);
++    
++    crc = ngx_ppv2_crc32c_update(ngx_ppv2_crc32c_init(), (void *)start, end - start);
++    crc = ngx_ppv2_crc32c_finalize(crc);
++    
++    ngx_memcpy(tlv->val.data, saved_crc, 4);
++    
++    if(given_crc != crc) {
++        return NGX_ERROR;
++    }
++    return NGX_OK;
++}
++
++static ngx_int_t
++ngx_proxy_protocol_v2_read_tlv(ngx_connection_t *c, u_char *buf, u_char *first, u_char *last)
++{
++    size_t                    total_data_sz = 0;
++    int                       tlv_count = 0;
++    ngx_int_t                 rc;
++    u_char                   *cur = buf;
++    
++    ngx_proxy_protocol_tlv_t  tlv;
++    while((rc = ngx_proxy_protocol_v2_next_tlv(&cur, last, &tlv)) == NGX_OK) {
++        switch(tlv.type) {
++            case 0x04: //no-op
++                //skip it
++                break;
++            case 0x03: //CRC32c
++                if (ngx_proxy_protocol_v2_checksum(first, last, &tlv) != NGX_OK) {
++                    ngx_log_error(NGX_LOG_ERR, c->log, 0,
++                                   "bad PROXY protocol v2 checksum");
++                    //clear $proxy_protocol_port
++                    c->proxy_protocol_port = 0;
++                    //clear $proxy_protocol_addr
++                    c->proxy_protocol_addr.len = 0;
++                    c->proxy_protocol_addr.data = NULL;
++                    return NGX_ERROR;
++                }
++                /* fall through */
++            default:
++                tlv_count++;
++                total_data_sz += tlv.val.len;
++                break;
++        }
++    }
++    if(rc == NGX_ERROR) {
++        ngx_log_error(NGX_LOG_ERR, c->log, 0,
++                      "invalid PROXY protocol v2 TLV vector");
++        return NGX_ERROR;
++    }
++    if(tlv_count == 0) {
++        //no TLVs
++        return NGX_OK;
++    }
++    ngx_proxy_protocol_tlv_t  *tlvs;
++    if((tlvs = ngx_palloc(c->pool, sizeof(*tlvs)*(tlv_count+1))) == NULL) {
++        return NGX_ERROR;
++    }
++    u_char *valbuf = NULL;
++    if(total_data_sz > 0 && (valbuf = ngx_palloc(c->pool, total_data_sz)) == NULL) {
++        return NGX_ERROR;
++    }
++    
++    //set the TLVs
++    int i=0;
++    cur = buf;
++    while((rc = ngx_proxy_protocol_v2_next_tlv(&cur, last, &tlvs[i])) == NGX_OK) {
++        if(tlvs[i].type != 0x04) { //not NO-OP
++            ngx_memcpy(valbuf, tlvs[i].val.data, tlvs[i].val.len);
++            tlvs[i].val.data = valbuf;
++            valbuf += tlvs[i].val.len;
++            i++;
++        }
++    }
++    //last TLV is a sentinel to mark the end of the array
++    tlvs[i].val.data = ngx_proxy_protocol_tlv_value_sentinel;
++    tlvs[i].val.len = 0;
++    tlvs[i].type = 0;
++    c->proxy_protocol_tlv = tlvs;
++    
++    return NGX_OK;
++}
++
++static ngx_proxy_protocol_tlv_t *
++ngx_proxy_protocol_find_tlv_type(ngx_connection_t *c, u_char type) {
++    ngx_proxy_protocol_tlv_t   *cur;
++    for(cur = c->proxy_protocol_tlv; cur->val.data != ngx_proxy_protocol_tlv_value_sentinel; cur++) {
++        if(cur->type == type) {
++            return cur;
++        }
++    }
++    return NULL;
++}
++
++static ngx_int_t ngx_proxy_protocol_tlv_match_named_variable(ngx_connection_t *c, ngx_str_t *var, ngx_str_t *varval) {
++    ngx_proxy_protocol_tlv_named_handler_t *cur;
++    ngx_proxy_protocol_tlv_t *tlv;
++    for(cur = ngx_proxy_protocol_tlv_named_handler; cur->name.data != NULL; cur++) {
++        if (var->len == cur->name.len
++            && ngx_memcmp(var->data, cur->name.data, var->len) == 0)
++        {
++            if((tlv = ngx_proxy_protocol_find_tlv_type(c, cur->type)) == NULL) {
++                //we didn't see this TLV type in the PPv2 header
++                return NGX_DECLINED;
++            }
++            return cur->handler(c, &tlv->val, varval);
++        }
++    }
++    //no such variable
++    return NGX_DECLINED;
++}
++
++ngx_int_t
++ngx_proxy_protocol_variable_tlv(ngx_connection_t *c, ngx_str_t *varname,
++    ngx_str_t *varval)
++{
++    ngx_str_t                   var;
++    ngx_int_t                   tlv_type;
++    ngx_proxy_protocol_tlv_t   *tlv;
++    
++    if(!c->proxy_protocol_tlv) {
++        //no TLVs at all
++        return NGX_DECLINED;
++    }
++    
++    var = *varname;
++    var.data += sizeof("proxy_protocol_tlv_") - 1;
++    var.len -= sizeof("proxy_protocol_tlv_") - 1;
++    //check for "0x"
++    if (var.len == 4 && var.data[0] == '0' && var.data[1] == 'x') {
++        //check TLVs of the form "0xXX"
++        if ((tlv_type = ngx_hextoi(&var.data[2], var.len-2)) == NGX_ERROR) {
++            return NGX_ERROR;
++        }
++        if ((tlv = ngx_proxy_protocol_find_tlv_type(c, tlv_type)) != NULL) {
++            *varval = tlv->val;
++            return NGX_OK;
++        }
++        //not found
++        return NGX_DECLINED;
++    }
++    return ngx_proxy_protocol_tlv_match_named_variable(c, &var, varval);
++}
++
++static ngx_int_t ngx_ppv2_tlv_parse_aws_vpce_id(ngx_connection_t *c, ngx_str_t *in, ngx_str_t *out) {
++    //https://docs.aws.amazon.com/elasticloadbalancing/latest/network/load-balancer-target-groups.html#proxy-protocol
++    if(in->len == 0 || in->data[0] != 0x01) {
++        //an unecpected first byte to be sure, and an unwelcome one
++        return NGX_DECLINED;
++    }
++    //strip off the PP2_SUBTYPE_AWS_VPCE_ID byte
++    out->len = in->len-1;
++    out->data = in->data+1;
++    return NGX_OK;
++}
++
++static ngx_int_t ngx_ppv2_tlv_passthrough(ngx_connection_t *c, ngx_str_t *in, ngx_str_t *out) {
++    *out = *in;
++    return NGX_OK;
++}
+ 
+ static u_char *
+ ngx_proxy_protocol_v2_read(ngx_connection_t *c, u_char *buf, u_char *last)
+ {
++    u_char                             *start = buf;
+     u_char                             *end;
+     size_t                              len;
+     socklen_t                           socklen;
+@@ -336,7 +605,8 @@
+ 
+     if (buf < end) {
+         ngx_log_debug1(NGX_LOG_DEBUG_CORE, c->log, 0,
+-                       "PROXY protocol v2 %z bytes of tlv ignored", end - buf);
++                       "PROXY protocol v2 %z bytes of tlv", end - buf);
++        ngx_proxy_protocol_v2_read_tlv(c, buf, start, end);
+     }
+ 
+     return end;
+diff -ur -x '*~' -x '*.swp' nginx-1.17.2/src/core/ngx_proxy_protocol.h nginx-1.17.2-proxy_protocol_vars/src/core/ngx_proxy_protocol.h
+--- nginx-1.17.2/src/core/ngx_proxy_protocol.h	2019-07-23 08:01:47.000000000 -0400
++++ nginx-1.17.2-proxy_protocol_vars/src/core/ngx_proxy_protocol.h	2019-07-25 21:57:11.136447607 -0400
+@@ -20,6 +20,8 @@
+     u_char *last);
+ u_char *ngx_proxy_protocol_write(ngx_connection_t *c, u_char *buf,
+     u_char *last);
++ngx_int_t ngx_proxy_protocol_variable_tlv(ngx_connection_t *c, ngx_str_t *varname, ngx_str_t *varval);
++
+ 
+ 
+ #endif /* _NGX_PROXY_PROTOCOL_H_INCLUDED_ */
+diff -ur -x '*~' -x '*.swp' nginx-1.17.2/src/http/ngx_http_variables.c nginx-1.17.2-proxy_protocol_vars/src/http/ngx_http_variables.c
+--- nginx-1.17.2/src/http/ngx_http_variables.c	2019-07-23 08:01:47.000000000 -0400
++++ nginx-1.17.2-proxy_protocol_vars/src/http/ngx_http_variables.c	2019-07-25 21:57:11.133114265 -0400
+@@ -63,6 +63,8 @@
+     ngx_http_variable_value_t *v, uintptr_t data);
+ static ngx_int_t ngx_http_variable_proxy_protocol_port(ngx_http_request_t *r,
+     ngx_http_variable_value_t *v, uintptr_t data);
++static ngx_int_t ngx_http_variable_proxy_protocol_tlv(ngx_http_request_t *r,
++    ngx_http_variable_value_t *v, uintptr_t data);
+ static ngx_int_t ngx_http_variable_server_addr(ngx_http_request_t *r,
+     ngx_http_variable_value_t *v, uintptr_t data);
+ static ngx_int_t ngx_http_variable_server_port(ngx_http_request_t *r,
+@@ -204,6 +206,9 @@
+     { ngx_string("proxy_protocol_port"), NULL,
+       ngx_http_variable_proxy_protocol_port, 0, 0, 0 },
+ 
++    { ngx_string("proxy_protocol_tlv_"), NULL,
++      ngx_http_variable_proxy_protocol_tlv, 0, NGX_HTTP_VAR_PREFIX, 0 },
++
+     { ngx_string("server_addr"), NULL, ngx_http_variable_server_addr, 0, 0, 0 },
+ 
+     { ngx_string("server_port"), NULL, ngx_http_variable_server_port, 0, 0, 0 },
+@@ -1328,6 +1333,32 @@
+     return NGX_OK;
+ }
+ 
++static ngx_int_t
++ngx_http_variable_proxy_protocol_tlv(ngx_http_request_t *r,
++    ngx_http_variable_value_t *v, uintptr_t data)
++{
++    ngx_str_t val;
++    ngx_int_t rc = ngx_proxy_protocol_variable_tlv(r->connection, (ngx_str_t *)data, &val);
++    switch(rc) {
++        case NGX_OK:
++            v->len = val.len;
++            v->data = val.data;
++            v->valid = 1;
++            v->no_cacheable = 0;
++            v->not_found = 0;
++            return NGX_OK;
++        case NGX_DECLINED:
++            v->valid = 1;
++            v->not_found = 1;
++            return NGX_OK;
++        default:
++        case NGX_ERROR:
++            v->valid = 0;
++            v->not_found = 1;
++            return NGX_OK;
++    }
++}
++
+ 
+ static ngx_int_t
+ ngx_http_variable_server_addr(ngx_http_request_t *r,
+Only in nginx-1.17.2-proxy_protocol_vars/src/http: ngx_http_variables.c.orig
+diff -ur -x '*~' -x '*.swp' nginx-1.17.2/src/stream/ngx_stream_variables.c nginx-1.17.2-proxy_protocol_vars/src/stream/ngx_stream_variables.c
+--- nginx-1.17.2/src/stream/ngx_stream_variables.c	2019-07-23 08:01:47.000000000 -0400
++++ nginx-1.17.2-proxy_protocol_vars/src/stream/ngx_stream_variables.c	2019-07-25 21:57:11.136447607 -0400
+@@ -23,6 +23,8 @@
+     ngx_stream_session_t *s, ngx_stream_variable_value_t *v, uintptr_t data);
+ static ngx_int_t ngx_stream_variable_proxy_protocol_port(
+     ngx_stream_session_t *s, ngx_stream_variable_value_t *v, uintptr_t data);
++static ngx_int_t ngx_stream_variable_proxy_protocol_tlv(
++    ngx_stream_session_t *s, ngx_stream_variable_value_t *v, uintptr_t data);
+ static ngx_int_t ngx_stream_variable_server_addr(ngx_stream_session_t *s,
+     ngx_stream_variable_value_t *v, uintptr_t data);
+ static ngx_int_t ngx_stream_variable_server_port(ngx_stream_session_t *s,
+@@ -69,6 +71,9 @@
+     { ngx_string("proxy_protocol_port"), NULL,
+       ngx_stream_variable_proxy_protocol_port, 0, 0, 0 },
+ 
++    { ngx_string("proxy_protocol_tlv_"), NULL,
++      ngx_stream_variable_proxy_protocol_tlv, 0, NGX_STREAM_VAR_PREFIX, 0 },
++
+     { ngx_string("server_addr"), NULL,
+       ngx_stream_variable_server_addr, 0, 0, 0 },
+ 
+@@ -592,6 +597,30 @@
+     return NGX_OK;
+ }
+ 
++static ngx_int_t ngx_stream_variable_proxy_protocol_tlv(ngx_stream_session_t *s,
++    ngx_stream_variable_value_t *v, uintptr_t data)
++{
++    ngx_str_t val;
++    ngx_int_t rc = ngx_proxy_protocol_variable_tlv(s->connection, (ngx_str_t *)data, &val);
++    switch(rc) {
++        case NGX_OK:
++            v->len = val.len;
++            v->data = val.data;
++            v->valid = 1;
++            v->no_cacheable = 0;
++            v->not_found = 0;
++            return NGX_OK;
++        case NGX_DECLINED:
++            v->valid = 1;
++            v->not_found = 1;
++            return NGX_OK;
++        default:
++        case NGX_ERROR:
++            v->valid = 0;
++            v->not_found = 1;
++            return NGX_OK;
++    }
++}
+ 
+ static ngx_int_t
+ ngx_stream_variable_server_addr(ngx_stream_session_t *s,
