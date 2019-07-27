@@ -70,6 +70,15 @@ This patch adds the following variables when using `listen proxy_protocol`:
 
 - As required by the [Proxy Protocol](http://www.haproxy.org/download/1.8/doc/proxy-protocol.txt) spec, the `0x04` (No-op) TLV type is ignored.
 
+## Prebuilt packages for CentOS/RHEL 6, 7
+
+Prebuilt CentOS/RHEL package of stable NGINX including the patch can be found [here](https://www.getpagespeed.com/nginx-mod-a-better-faster-nginx-build). To install NGINX with the patch, run:
+
+    yum -y install https://extras.getpagespeed.com/release-el$(rpm -E %{rhel})-latest.rpm
+    yum -y install yum-utils
+    yum-config-manager --enable getpagespeed-extras-nginx-mod
+    yum install nginx
+
 ## Thanks
 
 Work on this project was supported by [Ring](https://ring.com/).
