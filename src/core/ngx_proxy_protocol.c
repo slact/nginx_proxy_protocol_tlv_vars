@@ -286,7 +286,7 @@ ngx_proxy_protocol_write(ngx_connection_t *c, u_char *buf, u_char *last)
 }
 
 static ngx_int_t
-ngx_proxy_protocol_v2_next_tlv(u_char **curptr, u_char *last, 
+ngx_proxy_protocol_v2_next_tlv(u_char **curptr, u_char *last,
     ngx_proxy_protocol_tlv_t *tlv)
 {
     uint8_t type;
@@ -314,18 +314,24 @@ ngx_proxy_protocol_v2_next_tlv(u_char **curptr, u_char *last,
 }
 
 static ngx_int_t ngx_proxy_protocol_v2_checksum(u_char *start, u_char *end, ngx_proxy_protocol_tlv_t *tlv) {
-    u_char                              saved_crc[4];
+    uint32_t                            saved_crc;
     ngx_ppv2_crc32c_t                   given_crc, crc;
-    ngx_memcpy(saved_crc, tlv->val.data, 4);
-    given_crc = ntohl(*(uint32_t *)saved_crc);
-    
-    ngx_memzero(tlv->val.data, 4);
-    
+
+    // CRC32C Must be 4 bytes to be valid
+    if (tlv->val.len != sizeof(uint32_t)) {
+        return NGX_ERROR;
+    }
+
+    ngx_memcpy(&saved_crc, tlv->val.data, sizeof(uint32_t));
+    given_crc = ntohl(saved_crc);
+
+    ngx_memzero(tlv->val.data, sizeof(uint32_t));
+
     crc = ngx_ppv2_crc32c_update(ngx_ppv2_crc32c_init(), (void *)start, end - start);
     crc = ngx_ppv2_crc32c_finalize(crc);
-    
-    ngx_memcpy(tlv->val.data, saved_crc, 4);
-    
+
+    ngx_memcpy(tlv->val.data, &saved_crc, sizeof(uint32_t));
+
     if(given_crc != crc) {
         return NGX_ERROR;
     }
@@ -339,7 +345,7 @@ ngx_proxy_protocol_v2_read_tlv(ngx_connection_t *c, u_char *buf, u_char *first, 
     int                       tlv_count = 0;
     ngx_int_t                 rc;
     u_char                   *cur = buf;
-    
+
     ngx_proxy_protocol_tlv_t  tlv;
     while((rc = ngx_proxy_protocol_v2_next_tlv(&cur, last, &tlv)) == NGX_OK) {
         switch(tlv.type) {
@@ -381,7 +387,7 @@ ngx_proxy_protocol_v2_read_tlv(ngx_connection_t *c, u_char *buf, u_char *first, 
     if(total_data_sz > 0 && (valbuf = ngx_palloc(c->pool, total_data_sz)) == NULL) {
         return NGX_ERROR;
     }
-    
+
     //set the TLVs
     int i=0;
     cur = buf;
@@ -398,7 +404,7 @@ ngx_proxy_protocol_v2_read_tlv(ngx_connection_t *c, u_char *buf, u_char *first, 
     tlvs[i].val.len = 0;
     tlvs[i].type = 0;
     c->proxy_protocol_tlv = tlvs;
-    
+
     return NGX_OK;
 }
 
@@ -438,12 +444,12 @@ ngx_proxy_protocol_variable_tlv(ngx_connection_t *c, ngx_str_t *varname,
     ngx_str_t                   var;
     ngx_int_t                   tlv_type;
     ngx_proxy_protocol_tlv_t   *tlv;
-    
+
     if(!c->proxy_protocol_tlv) {
         //no TLVs at all
         return NGX_DECLINED;
     }
-    
+
     var = *varname;
     var.data += sizeof("proxy_protocol_tlv_") - 1;
     var.len -= sizeof("proxy_protocol_tlv_") - 1;
