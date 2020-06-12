@@ -9,7 +9,6 @@ require "minitest/autorun"
 require "http"
 require "http/2"
 require "digest/crc32c"
-require "pry"
 require_relative "proxyprotocol.rb"
 
 class BetterSpecReporter < Minitest::Reporters::SpecReporter
