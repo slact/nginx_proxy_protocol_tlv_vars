@@ -5,7 +5,7 @@ gem 'json'
 
 gem 'irb'
 gem 'pry'
-gem 'pry-byebug' if Gem::Version.new(RUBY_VERSION) >= Gem::Version.new('2.2.0')
+gem 'pry-byebug'
 gem 'pry-coolline'
 gem 'pry-doc'
 gem 'pry-git'
